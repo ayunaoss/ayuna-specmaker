@@ -1,0 +1,115 @@
+{
+  "id": "idle-session-timeout",
+  "title": "Idle session timeout",
+  "track": "full",
+  "phase": "retro",
+  "created": "2026-11-03T09:12:00+05:30",
+  "skip_specs": false,
+  "accreditation": {
+    "verdict": "approved",
+    "by": "Alex Chen",
+    "at": "2026-11-06T15:30:00+05:30",
+    "conditions": [],
+    "lock": {
+      "hld.md": "c5e37c4c4795f4cd571394d095f4c5bd2449ace8833d32bf39a678a9111a7f96",
+      "lld.md": "2c5d3ec2ae821568cd2f370bb5befa15cbda1b3e47e0ada6036522c5f84c0b77",
+      "adrs/0001-server-side-session-records.md": "7597e8ee51fd3b623a717d8b1a455aade0f07595062f2023ebd8cbf4bad7b86d",
+      "adrs/0002-inject-the-clock.md": "12e2fd5e850da6e6c5690200f526a06192e364ab1554a5664e3115ab0444736f",
+      "specs/identity/session/spec.md": "d853eb3119739784872f38458c918538b5eed04db823045902cd180c911ba0ef"
+    },
+    "base": {
+      "SESS-02": "6925be36f09e517a85d6bcdf676036ee4da252d370d66c8bffaa44324bd6cef8"
+    }
+  },
+  "sprints": {
+    "1": {
+      "status": "signed-off",
+      "started": "2026-11-10T09:30:00+05:30",
+      "stories": [
+        "S3",
+        "S1"
+      ],
+      "base_sha": null,
+      "by": "Alex Chen",
+      "at": "2026-11-10T17:45:00+05:30"
+    },
+    "2": {
+      "status": "signed-off",
+      "started": "2026-11-11T09:30:00+05:30",
+      "stories": [
+        "S2"
+      ],
+      "base_sha": null,
+      "by": "Alex Chen",
+      "at": "2026-11-12T16:30:00+05:30"
+    }
+  },
+  "history": [
+    {
+      "at": "2026-11-03T09:12:00+05:30",
+      "event": "created",
+      "detail": "track=full"
+    },
+    {
+      "at": "2026-11-03T16:40:00+05:30",
+      "event": "phase",
+      "detail": "ideate -> propose"
+    },
+    {
+      "at": "2026-11-05T17:05:00+05:30",
+      "event": "phase",
+      "detail": "propose -> accredit"
+    },
+    {
+      "at": "2026-11-06T15:30:00+05:30",
+      "event": "accredit",
+      "detail": "approved by Alex Chen"
+    },
+    {
+      "at": "2026-11-06T15:31:00+05:30",
+      "event": "phase",
+      "detail": "accredit -> scrum"
+    },
+    {
+      "at": "2026-11-06T18:20:00+05:30",
+      "event": "phase",
+      "detail": "scrum -> sprint"
+    },
+    {
+      "at": "2026-11-10T09:30:00+05:30",
+      "event": "sprint-start",
+      "detail": "1"
+    },
+    {
+      "at": "2026-11-10T17:10:00+05:30",
+      "event": "gates",
+      "detail": "sprint 1: PASS"
+    },
+    {
+      "at": "2026-11-10T17:45:00+05:30",
+      "event": "signoff",
+      "detail": "sprint 1 by Alex Chen"
+    },
+    {
+      "at": "2026-11-11T09:30:00+05:30",
+      "event": "sprint-start",
+      "detail": "2"
+    },
+    {
+      "at": "2026-11-12T16:00:00+05:30",
+      "event": "gates",
+      "detail": "sprint 2: PASS"
+    },
+    {
+      "at": "2026-11-12T16:30:00+05:30",
+      "event": "signoff",
+      "detail": "sprint 2 by Alex Chen"
+    },
+    {
+      "at": "2026-11-12T16:31:00+05:30",
+      "event": "phase",
+      "detail": "sprint -> retro"
+    }
+  ],
+  "specmaker": "0.1.0"
+}

@@ -1,0 +1,19 @@
+{
+  "name": "specmaker",
+  "version": "0.1.0",
+  "description": "Spec-driven development in six phases: ideate (HLD), propose (LLD, specs, ADRs), accredit (fresh-context review + human approval), scrum (backlog), sprint (build, verify, sign-off), retro (merge living specs, archive).",
+  "author": {
+    "name": "Ayuna specmaker contributors"
+  },
+  "homepage": "https://github.com/ayunaoss/ayuna-specmaker",
+  "repository": "https://github.com/ayunaoss/ayuna-specmaker",
+  "license": "MIT",
+  "keywords": [
+    "spec-driven-development",
+    "specs",
+    "adr",
+    "agile",
+    "code-review",
+    "skills"
+  ]
+}

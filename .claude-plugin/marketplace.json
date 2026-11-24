@@ -1,0 +1,12 @@
+{
+  "name": "ayuna",
+  "owner": { "name": "Ayuna specmaker contributors" },
+  "description": "Ayuna specmaker: spec-driven development skills for coding agents.",
+  "plugins": [
+    {
+      "name": "specmaker",
+      "source": "./",
+      "description": "Six-phase spec-driven workflow (ideate, propose, accredit, scrum, sprint, retro) with a deterministic helper script."
+    }
+  ]
+}
