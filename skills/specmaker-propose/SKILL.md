@@ -20,26 +20,15 @@ metadata:
 build it without making a single design decision. That is the bar the accredit
 phase will test against.
 
-**Locate specmaker first.** Some harnesses (OpenCode included) load this text
-without saying where the skill folder is (Claude Code fills in
-`${CLAUDE_SKILL_DIR}` below; elsewhere it is simply empty). Find it with:
+**Locate specmaker** (your harness may not say where this skill lives):
 
 ```bash
 R=$(git rev-parse --show-toplevel 2>/dev/null || pwd); for d in "$SPECMAKER_HOME" "${CLAUDE_SKILL_DIR}/../specmaker" "$R/.opencode/skills/specmaker" "$R/.agents/skills/specmaker" "$R/.claude/skills/specmaker" "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills/specmaker" "$HOME/.agents/skills/specmaker" "$HOME/.claude/skills/specmaker" $(ls -d "${CLAUDE_CODE_PLUGIN_CACHE_DIR:-$HOME/.claude/plugins}"/cache/*/specmaker/*/skills/specmaker 2>/dev/null | sort -V | tail -1); do [ -f "$d/scripts/specmaker.py" ] && { d=$(cd "$d" && pwd); case "$d" in "$R"/*) echo "${d#"$R"/}";; *) echo "$d";; esac; break; }; done
 ```
 
-Call the printed folder `SM`. It is relative to the project root when
-specmaker is installed in the project, so run specmaker commands from the
-project root and copy `SM` exactly. If nothing is printed, ask the user where
-specmaker is installed (or to set `SPECMAKER_HOME`). All seven specmaker
-skills must be installed side by side, including the core `specmaker` skill. Never guess paths from the
-project's working directory.
+Call the printed folder `SM`; run `python3 $SM/scripts/specmaker.py` from the project root. If nothing prints, ask the user to install all seven specmaker skills side by side, or to set `SPECMAKER_HOME`. This skill's own files are in `$SM/../specmaker-propose/`.
 
-Then:
-
-- Run the helper script as `python3 $SM/scripts/specmaker.py <command>`.
 - Read `$SM/references/conventions.md` and `$SM/references/spec-format.md` first.
-- This skill's own files (`references/`, `assets/`) are in `$SM/../specmaker-propose/`.
 
 **Outputs, all in `changes/<id>/`:**
 
@@ -68,19 +57,16 @@ contracts are needed. Agree on it before writing anything.
 
 ### 2. Decisions first (ADRs)
 
-Read [adr-guide.md](references/adr-guide.md). It lists the decision topics to
-consider (language, framework, persistence, messaging, API style, auth, hosting
-and deployment topology, infrastructure-as-code, CI/CD, observability, test
-tooling) and when each needs an ADR.
+Read [adr-guide.md](references/adr-guide.md) for the decision topics
+(framework, data, deployment and so on) and when each needs an ADR.
 
 - Write an ADR only for a decision that is **new or changed** relative to
   `project.md`. Choices `project.md` already settles need none.
 - Each ADR compares at least two real options against named decision drivers.
   Recommend one, explain the reason, and ask the user to choose. Set
   `Status: Accepted` only after they agree.
-- Settle decisions before the LLD sections that depend on them. Writing the
-  LLD first and justifying it afterwards is how designs end up rationalised
-  rather than reasoned.
+- Settle decisions before the LLD sections that depend on them, so the
+  design is reasoned, not rationalised.
 
 ### 3. LLD, section by section
 
@@ -98,6 +84,8 @@ Rules for the LLD:
 - Every decision the implementer would otherwise have to make goes into the LLD
   or an ADR. Examples: names of new modules, schema fields and types, error
   codes, retry and timeout values, config keys, library versions.
+- Choose those names by `$SM/references/naming.md`. Record any repository
+  rule that overrides it in `project.md` → Conventions.
 - **Implementation Phases** must leave the system buildable and testable after
   each phase. These become the backbone of the sprint plan.
 - **File Boundary** lists the exact repository paths to create, modify or
@@ -107,15 +95,13 @@ Rules for the LLD:
 
 ### 4. Delta specs
 
-Write one capability at a time. Before each one, say which capability you are
-writing. Save each file as soon as it is drafted, so an interrupted session
-keeps its progress.
+Write and save one capability at a time, so an interrupted session keeps its
+progress. Before each one, tell the user which capability you are writing.
 
 - Follow spec-format.md exactly. Requirements say *what*, never *how*.
 - Write them in present tense, describing the system **after** the change
-  ("The system SHALL lock the account after 5 failed attempts"). Never
-  describe the change itself ("now locks", "no longer allows"). The archive
-  step merges this text into the living specs word for word.
+  ("The system SHALL lock the account after 5 failed attempts"), never the
+  change itself ("now locks"). Archive merges this text word for word.
 - Cover error, limit and permission behaviour, not just the happy path. Every
   Non-Goal that users might expect gets either a requirement or nothing; never
   a vague mention.
@@ -140,14 +126,15 @@ warnings with the user.
 
 ### 6. Close
 
-Give the user the list of files and the TL;DR of the LLD. Ask whether the design
-is ready for review. On a yes, run `phase <id> accredit`, and tell them that the
-accredit phase (`specmaker-accredit`) runs fresh-context reviewers and then asks
-them for a verdict.
+Give the user the file list and the LLD's TL;DR, and ask whether the design is
+ready for review. On a yes, run `phase <id> accredit` and hand over to
+`specmaker-accredit`. Tell the user that it runs fresh-context reviewers, then
+asks them for a verdict.
 
 ## When re-entered after `amend`
 
-Read the ledger entries since the last accreditation and the review reports that
-caused the amendment. Change only what they require. List the changed sections
-in the ledger (`--kind note`), so the accredit phase can re-review only those
-sections.
+Read the change requests being applied (`cr list` and `requests/CR-NNN.md`),
+the ledger since the last accreditation, and any review reports that caused
+the amendment. Change only what they require,
+and list the changed sections in the ledger (`--kind note`), so accredit
+re-reviews only those.

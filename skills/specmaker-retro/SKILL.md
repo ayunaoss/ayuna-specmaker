@@ -20,26 +20,15 @@ metadata:
 behind it are in the project's ADR log, the team has learned something
 specific, and the change folder is archived.
 
-**Locate specmaker first.** Some harnesses (OpenCode included) load this text
-without saying where the skill folder is (Claude Code fills in
-`${CLAUDE_SKILL_DIR}` below; elsewhere it is simply empty). Find it with:
+**Locate specmaker** (your harness may not say where this skill lives):
 
 ```bash
 R=$(git rev-parse --show-toplevel 2>/dev/null || pwd); for d in "$SPECMAKER_HOME" "${CLAUDE_SKILL_DIR}/../specmaker" "$R/.opencode/skills/specmaker" "$R/.agents/skills/specmaker" "$R/.claude/skills/specmaker" "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills/specmaker" "$HOME/.agents/skills/specmaker" "$HOME/.claude/skills/specmaker" $(ls -d "${CLAUDE_CODE_PLUGIN_CACHE_DIR:-$HOME/.claude/plugins}"/cache/*/specmaker/*/skills/specmaker 2>/dev/null | sort -V | tail -1); do [ -f "$d/scripts/specmaker.py" ] && { d=$(cd "$d" && pwd); case "$d" in "$R"/*) echo "${d#"$R"/}";; *) echo "$d";; esac; break; }; done
 ```
 
-Call the printed folder `SM`. It is relative to the project root when
-specmaker is installed in the project, so run specmaker commands from the
-project root and copy `SM` exactly. If nothing is printed, ask the user where
-specmaker is installed (or to set `SPECMAKER_HOME`). All seven specmaker
-skills must be installed side by side, including the core `specmaker` skill. Never guess paths from the
-project's working directory.
+Call the printed folder `SM`; run `python3 $SM/scripts/specmaker.py` from the project root. If nothing prints, ask the user to install all seven specmaker skills side by side, or to set `SPECMAKER_HOME`. This skill's own files are in `$SM/../specmaker-retro/`.
 
-Then:
-
-- Run the helper script as `python3 $SM/scripts/specmaker.py <command>`.
 - Read `$SM/references/conventions.md` and `$SM/references/spec-format.md` first.
-- This skill's own files (`references/`, `assets/`) are in `$SM/../specmaker-retro/`.
 
 ## A. Closing a change (phase `retro`)
 
@@ -53,6 +42,11 @@ reports and the ledger:
 - the number of review rounds and findings by severity
 - the deviations and amendments, and what caused each
 - the gate failures, verifier FAILs, and accepted gaps
+- the change requests (`cr list`): how many were received, rejected,
+  deferred, folded into the backlog, and amended, plus how many were blockers,
+  with the requesters. Note any rewinds (`ledger`). A high count of amend
+  outcomes or rewinds is a lesson about the HLD or the intake, not about the
+  build.
 
 Then discuss them with the user, **one question at a time**: what helped, what
 hurt, and what to change. Keep only lessons that are specific and actionable.
@@ -75,13 +69,14 @@ read. Scan the deltas for change wording: "now", "no longer", "new",
 If you find any, fixing it means editing locked files. Show the user the exact
 rewording. If they want it fixed before merging:
 
-1. Run `amend <id> --reason "retro: wording-only fix to delta specs"`.
-2. Make the edit.
-3. Run `phase <id> accredit`.
-4. Once the user confirms the diff does not change meaning, record
-   `accredit <id> --verdict approved --by "<name>"`. The existing review
-   reports satisfy the lens minimum.
-5. Walk forward again with `phase` (scrum → sprint → retro). These steps pass,
+1. `amend <id> --wording-only --reason "retro: wording fix to delta specs"`.
+   This is a human gate: the user confirms that the fix does not change
+   meaning (conventions §4).
+2. Make the edit. Do not add, remove or renumber any requirement or scenario;
+   the script refuses a "wording-only" amendment that changes IDs.
+3. Run `phase <id> accredit`, then get the verdict (a human gate, conventions
+   §4). No new review round is needed, and no sprints reopen.
+4. Walk forward again with `phase` (scrum → sprint → retro). These steps pass,
    because the backlog and sign-offs are unchanged.
 
 ### 4. Merge and archive

@@ -29,7 +29,7 @@ S="python3 .agents/skills/specmaker/scripts/specmaker.py"   # default project in
 - [10. Control review cost and reviewer model](#10-control-review-cost-and-reviewer-model)
 - [11. Review without subagents (cold-read mode)](#11-review-without-subagents-cold-read-mode)
 - [12. Tag tests with scenario IDs](#12-tag-tests-with-scenario-ids)
-- [13. Handle a deviation, or change an approved design](#13-handle-a-deviation-or-change-an-approved-design)
+- [13. Handle deviations and change requests](#13-handle-deviations-and-change-requests)
 - [14. Human-only tasks](#14-human-only-tasks)
 - [15. Export the backlog to Jira, GitHub or Linear](#15-export-the-backlog-to-jira-github-or-linear)
 - [16. Check specs against code (drift)](#16-check-specs-against-code-drift)
@@ -44,8 +44,16 @@ S="python3 .agents/skills/specmaker/scripts/specmaker.py"   # default project in
 ## 1. Install
 
 Specmaker is seven skill folders. Copy them into a folder your agent scans for
-skills. Python 3.8 or later is needed for the helper script. Git is optional but
-recommended. Install **all seven**: every phase skill needs the core
+skills.
+
+**Requirements:**
+
+- Linux, macOS or WSL2
+- Python 3.8+ for the helper script
+- **OpenSSH 8.1+** (`ssh-keygen -Y`), which signs and verifies human approvals.
+  macOS ships it; on Linux and WSL2 install `openssh-client`. The installer
+  refuses to continue without it.
+- Git, strongly recommended (sprint evidence and rewind use it) Install **all seven**: every phase skill needs the core
 `specmaker` skill beside it. The repository is
 [github.com/ayunaoss/ayuna-specmaker](https://github.com/ayunaoss/ayuna-specmaker).
 
@@ -115,7 +123,7 @@ Useful options:
 | Option | Effect |
 |---|---|
 | `--link` | Symlink instead of copying, so `git pull` in the specmaker repo updates you |
-| `--explicit-only` | The agent loads specmaker skills only when you name them; they never auto-trigger |
+| `--explicit-only` | The agent loads specmaker skills only when you name them; they never auto-trigger. In Claude Code this also stops the core skill from loading a phase skill for you, so name each phase yourself (`/specmaker-propose` and so on) |
 | `--dry-run` | Show what would be installed |
 | `--uninstall` | Remove the seven skill folders from the target |
 
@@ -184,7 +192,8 @@ specmaker/
 The `AGENTS.md` block matters. Without it, agents often answer questions about
 `specmaker/` by reading the files directly and skip the skills, and with them
 the rules and the script. We observed this in testing with OpenCode. If the
-project has a `CLAUDE.md` and no `AGENTS.md`, the block goes into `CLAUDE.md`.
+project also has a `CLAUDE.md`, the block is written to both files: Claude Code
+reads `AGENTS.md` only when there is no `CLAUDE.md`.
 Re-running `init` refreshes the block and never touches the rest of the file.
 Use `--no-agents-md` to skip it.
 
@@ -209,11 +218,69 @@ Gate examples for other stacks:
 | Java (Maven) | ``- verify: `mvn -q verify` `` |
 | Rust | ``- test: `cargo test -q` `` · ``- clippy: `cargo clippy -- -D warnings` `` |
 
+**Register approvers.** Human decisions are SSH-signed by default
+(`Human gates: signed`). Each person who may approve designs, sign off
+sprints, decide change requests or authorise rewinds registers a public key
+once:
+
+```bash
+S approvers add --principal alex@example.com --key ~/.ssh/id_ed25519_sk.pub
+```
+
+Use a **hardware-backed key** where you can (`ssh-keygen -t ed25519-sk`). The
+agent may be able to read a normal key file, or use your SSH agent; a
+hardware key needs a physical touch for every signature. Then check where the
+signer list lives, and protect it:
+
+```bash
+S approvers check
+```
+
+```text
+OpenSSH: 10.0 (need 8.1+)
+search order: /etc/specmaker/allowed_signers, /home/alex/.config/specmaker/allowed_signers
+allowed signers: /home/alex/.config/specmaker/allowed_signers  [USER-WRITABLE (...)]
+  alex@example.com                 sk-ssh-ed25519@openssh.com   hardware-backed
+protect it: sudo install -d -m 755 /etc/specmaker && sudo install -m 644 ... /etc/specmaker/allowed_signers
+```
+
+A signer list your user can write is a list an agent running as you could add
+its own key to. `/etc/specmaker/allowed_signers`, owned by root, is the
+protected location. CI should verify against its own copy (§18).
+`SPECMAKER_ALLOWED_SIGNERS` overrides the search, and
+`SPECMAKER_SIGNING_KEY` (or `git config user.signingkey`) selects the private
+key used to sign.
+
 Also fill in **Spec Areas** (one requirement-ID prefix per capability, such as
 `- SESS: identity/session`), **Review Policy** and **Approvers**. See the filled
 example: [`examples/acme-notes/specmaker/project.md`](../examples/acme-notes/specmaker/project.md).
 
 Commit `specmaker/`. It is meant to live in the repository next to the code.
+
+**Naming.** Every phase names things by the specmaker naming guide,
+[`skills/specmaker/references/naming.md`](../skills/specmaker/references/naming.md):
+
+- English names, in each language's standard casing
+- short, descriptive names without abbreviations
+- no repeating the surrounding context
+- names that state their result
+- functions named `action + context` (`getUserMessages`, `get_user_messages`)
+- singular and plural matched
+
+It has a casing table and examples for TypeScript, Python, Go, Java, Kotlin,
+C#, Rust, Swift, C++, Ruby, PHP and SQL. Your repository's own rules win. List
+the exceptions under `project.md` → Conventions:
+
+```markdown
+## Conventions
+
+- Database columns stay camelCase (legacy schema shared with the billing service).
+- React components use PascalCase file names (`UserCard.tsx`).
+```
+
+The LLD fixes every new public name, and the sprint uses those names exactly.
+The critic reviewer and the sprint verifier flag naming breaks as Nit, or as
+Major when a public API or contract is affected.
 
 ## 4. Build a feature, end to end (full track)
 
@@ -320,34 +387,84 @@ Results: [`lld.md`](../examples/acme-notes/specmaker/changes/idle-session-timeou
 
 ```text
 Agent: Do you approve this design? Reply approved, conditional (with conditions), or
-       rejected, and the name to record as approver.
-You:   approved, Alex Chen
-Agent: Human gates are set to "terminal", so please record it yourself. In your terminal, run:
-           python3 .agents/skills/specmaker/scripts/specmaker.py accredit idle-session-timeout --verdict approved
+       rejected, and the approver identity to sign with.
+You:   approved, alex@example.com
+Agent: Human gates are "signed", so please sign it yourself. In your terminal, run:
+           python3 .agents/skills/specmaker/scripts/specmaker.py accredit idle-session-timeout --verdict approved --by alex@example.com
        and tell me when it's done.
 ```
 
-You run the command in **your own terminal** and type your name when asked:
+You run the command in **your own terminal**. Touch your security key when it
+blinks:
 
 ```text
-HUMAN GATE: record verdict 'APPROVED' for design of change 'idle-session-timeout'
-Type your full name to confirm (empty to cancel): Alex Chen
-idle-session-timeout: verdict APPROVED recorded for Alex Chen (via terminal)
+HUMAN GATE (signed): record verdict 'APPROVED' for design of change 'idle-session-timeout'
+Signing approvals/001-accredit.json as alex@example.com with /home/alex/.ssh/id_ed25519_sk (touch your security key if it blinks)...
+idle-session-timeout: verdict APPROVED recorded for alex@example.com (via signed)
 locked 5 design file(s). Any later edit breaks the lock and requires `amend`.
 ```
 
-Then the agent confirms with `S status` and runs
-`S phase idle-session-timeout scrum`.
+`approvals/001-accredit.json` states exactly what you approved:
 
-**Why the terminal step?** In testing, an agent that could not ask its question
-(a non-interactive OpenCode run) approved the design itself, using the name in
-`project.md`'s Approvers list. With `Human gates: terminal` (the default in
-`project.md`), the script records verdicts and sign-offs only when someone types
-a name at an interactive terminal. Agent shell tools have no terminal, so no
-model can approve on its own. If you prefer speed and trust your model, set
-`- Human gates: chat`. The agent then records the decision with
-`--by "<your name>"` after you state it in chat. Every record shows how it
-was made (`via terminal` or `via chat`).
+- the change
+- the verdict and its conditions
+- a digest of the locked design files
+- your identity and the time
+
+`001-accredit.json.sig` is your signature over that statement. Every later
+gate verifies it before trusting the verdict. So does `S status`, and so does
+CI (§18).
+
+Statements form a **chain**. Each one carries a sequence number, the hash of
+the previous statement, the change's unique ID and the repository's identity.
+The script checks the following:
+
+- The chain has no gaps.
+- Every statement is signed by the approver it names.
+- Every decision in `change.json` matches its statement field for field.
+- Every statement belongs to a decision.
+- Decisions still mean what was signed:
+  - A verdict still matches the locked design.
+  - A sprint sign-off still matches its gate record, its verifier report and
+    the approved requirements it covered.
+  - The sprint has not been rewound since its sign-off.
+  - A request's status follows from its signed decision.
+
+So editing `change.json`, removing or reordering a statement, copying one in
+from another change, or restoring an old sign-off after a rewind is reported
+as an error. Then the agent confirms with
+`S status` and runs `S phase idle-session-timeout scrum`.
+
+**Why signatures?** In testing, an agent that could not ask its question (a
+non-interactive OpenCode run) approved the design itself, using the name in
+`project.md`'s Approvers list. Asking for a typed name at a terminal doesn't
+fix that, because any program running under your account can fake a terminal.
+Running inside a sandbox doesn't fix it either: fake terminals work inside
+sandboxes, and the approval record lives in the project folder the agent may
+write. What an agent cannot produce is a signature from a key it can't use.
+
+The same applies to all human gates: the verdict, sprint sign-offs,
+change-request decisions (`cr decide`), discarding code (`rewind`), and
+amendments that need approval (`--over-budget`, `--wording-only`).
+
+| `Human gates:` | What a decision needs | Can an agent fake it? |
+|---|---|---|
+| `signed` (default) | An SSH signature from a key in the allowed signers file, over a statement of exactly what is approved | Not with a hardware key (needs a touch). With a software key, only if the agent can read the key or use your SSH agent. In CI against a signer list the agent can't change: no |
+| `terminal` | A name typed at an interactive terminal | Yes, with a fake terminal. Each record notes its terminal and parent processes, and `status` warns when one came from inside an agent |
+| `chat` | `--by "<name>"`, recorded by the agent after you say so | Yes; it relies on the model obeying |
+
+**Where enforcement happens.** On your machine the agent can edit files, so
+local checks catch mistakes and detect tampering, but a determined agent
+could also edit the signer list if your user can write it. Protect it
+(§3), and let **CI be the place that enforces**: `verify --require-signed`,
+run against a signer list that lives in CI configuration.
+
+**Changing modes.** If the `Human gates` line is missing or unreadable, the
+script uses `signed`. Each change keeps the mode it was created with, and the
+stricter of that and `project.md` applies. Loosening an existing change
+(`S set <id> human_gates terminal|chat`) is itself a human gate, signed in
+signed mode. Every record shows how it was made (`via signed`,
+`via terminal` or `via chat`).
 
 Results: [`reviews/`](../examples/acme-notes/specmaker/changes/idle-session-timeout/reviews/),
 [`accreditation.md`](../examples/acme-notes/specmaker/changes/idle-session-timeout/accreditation.md),
@@ -408,7 +525,7 @@ For each story, the agent:
 5. logs progress in `sprints/sprint-01.md`
 
 It changes only the files the tasks name. Anything else is a recorded
-deviation (see [§13](#13-handle-a-deviation-or-change-an-approved-design)).
+deviation (see [§13](#13-handle-deviations-and-change-requests)).
 
 Then it collects evidence:
 
@@ -422,14 +539,17 @@ writes `reviews/sprint-01-verification.md`, ending with `Verdict: PASS`. Then th
 agent asks you:
 
 ```text
-Agent: Do you sign off sprint 1? Reply yes with the name to record, or tell me what is missing.
-You:   yes, Alex Chen
+Agent: Do you sign off sprint 1? Reply yes with your approver identity, or tell me what is missing.
+You:   yes, alex@example.com
 Agent: Please run in your terminal:
-           python3 /…/specmaker.py signoff idle-session-timeout 1
+           python3 .agents/skills/specmaker/scripts/specmaker.py signoff idle-session-timeout 1 --by alex@example.com
 ```
 
-As with the verdict, you run it and type your name. In `chat` mode the agent
-runs `S signoff idle-session-timeout 1 --by "Alex Chen"` itself.
+As with the verdict, you run it and touch your key. The signed statement binds
+the sprint run, the digest of the gate record, and the verifier report's name
+and digest. Re-running gates or replacing the report after you sign is
+detected. In `terminal` mode you type your name instead; in `chat` mode the
+agent runs the command with `--by` itself.
 
 The sign-off is refused if:
 
@@ -462,6 +582,8 @@ S archive idle-session-timeout --dry-run
 # modify  [SESS-02] in identity/session
 # add     [SESS-03] -> identity/session
 # adr     adrs/0001-server-side-session-records.md -> adrs/0001-server-side-session-records.md
+# adr     adrs/0002-inject-the-clock.md -> adrs/0002-inject-the-clock.md
+# dry run: nothing written
 S archive idle-session-timeout
 ```
 
@@ -546,8 +668,9 @@ stopped:
 ```bash
 S status
 # idle-session-timeout - Idle session timeout
-#   track full, phase SPRINT
-#   accreditation: approved by Alex Chen at 2026-11-06T...
+#   track full, phase SPRINT, human gates: terminal
+#   artifacts: hld.md, lld.md, accreditation.md, backlog.md, retro.md (missing), 1 delta spec(s), 2 ADR(s), 4 review(s)
+#   accreditation: approved by Alex Chen at 2026-11-06T... (via terminal)
 #   backlog: 2/3 stories, 4/6 tasks, 2 sprint(s) planned
 #   sprint 1: signed-off by Alex Chen
 #   sprint 2: active
@@ -683,7 +806,7 @@ S trace idle-session-timeout              # this change's scenarios
 S coverage --capability identity/session  # all living scenarios
 ```
 
-## 13. Handle a deviation, or change an approved design
+## 13. Handle deviations and change requests
 
 **During a sprint, a file outside the plan must change** (for example, a shared
 fixture). The agent adds it under `## Deviations` in the sprint file before
@@ -709,27 +832,150 @@ ERROR   boundary: src/unplanned.py changed but is outside the sprint's task file
   agent stops, records `- [ ] <question>`, and asks you. An open `- [ ]`
   deviation blocks sign-off.
 
-**The design itself must change.** Editing a locked file is detected
-immediately:
+### Change requests: when someone asks for something different
+
+Requests that arrive mid-implementation and edit the specs straight away are
+the main reason spec-driven projects drift. Specmaker handles them in four
+steps: **record**, **freeze**, **batch**, and **apply deliberately**. The full
+strategy is in
+[`skills/specmaker/references/change-requests.md`](../skills/specmaker/references/change-requests.md).
+
+**1. Record it.** It is parked, and nothing else changes.
 
 ```text
-LOCK BROKEN - design changed after accreditation: lld.md (modified)
-```
-
-Reopen the design on purpose:
-
-```text
-@specmaker the 12-hour lifetime must be configurable per team. Amend the design.
+You:   Support says night-shift teams get signed out mid-shift. The 12-hour lifetime should be
+       configurable per team.
+Agent: Recorded as CR-001 (parked). Sprint 2 is active and frozen, so it will be triaged with
+       the other requests at the sprint boundary. Continuing with T2.2.
 ```
 
 ```bash
-S amend idle-session-timeout --reason "lifetime configurable per team (support request)"
-# phase -> propose; old accreditation kept in history; active sprint marked interrupted
+S cr add idle-session-timeout --title "Lifetime configurable per team" --by "Support (Priya)" \
+  --reason "Night-shift teams get signed out mid-shift"
+# CR-001 recorded as PARKED: requests/CR-001.md
+# sprint 2 is active and frozen: this request waits for the sprint boundary. Keep building.
 ```
 
-Propose updates only what is needed. Accredit re-reviews only the changed
-sections. Then scrum and the sprints continue. Sprints that are already signed
-off stay signed off.
+Mark a request `--blocker` only when continuing would build something known to
+be wrong (a legal or security finding, or a spec that contradicts reality).
+Blockers are triaged at once. Everything else waits. During a sprint, the
+script refuses to accept a non-blocker into the backlog or design:
+
+```text
+specmaker: sprint 2 is active and the sprint freeze is on: CR-001 can only be rejected or deferred now.
+```
+
+**2. Triage together at the sprint boundary.** After sign-off, the agent goes
+through all parked requests (`S cr list`). For each one it fills
+`requests/CR-NNN.md`:
+
+- goal fit
+- the two questions: does it change observable behaviour, and is it needed
+  for the current goals?
+- the **class**:
+  - 0: implementation detail
+  - 1: plan change → backlog
+  - 2: design change → amend
+  - 3: new scope → defer to a new change
+- impact, options, and a recommendation
+
+```bash
+S impact idle-session-timeout --reqs SESS-03
+```
+
+```text
+| Requirement | Scenarios | Stories (sprint: status) | Files (from tasks) | Tests |
+|---|---|---|---|---|
+| SESS-03 | SESS-03.1 | S2 (S2: signed-off) | src/notes/session.py<br>tests/test_session.py | tests/test_session.py |
+
+## Summary
+
+- Changed requirements: SESS-03
+- Signed-off sprints affected (reopen on re-approval): 2
+- In-progress sprints affected: none
+- Rewind candidate: `rewind idle-session-timeout --to sprint:2` discards all code since sprint 2 began
+```
+
+You decide each request: reject, defer, backlog or amend. Several requests
+with the same outcome go in one command. Like an approval, this is a human
+gate (in terminal mode you run it yourself):
+
+```bash
+S cr decide idle-session-timeout CR-001 --outcome amend --class 2 --reason "Serves G2; night shift exceeds 12h"
+```
+
+**3. Discard work the change makes wrong (optional).** `rewind` is a human
+gate too.
+
+| `--to` | Discards |
+|---|---|
+| `head` | uncommitted changes only |
+| `sprint` | everything since the active or latest sprint started |
+| `sprint:N` | everything since sprint N started |
+| `change` | everything since the first sprint |
+
+Files under `specmaker/` are never touched. Before discarding, the script
+creates a backup branch `specmaker-backup/<change>/<timestamp>` and stashes
+uncommitted work. It then records the revert as a **new commit**, so history
+is not rewritten. Tasks of rewound sprints are unticked in `backlog.md`.
+
+```bash
+S rewind idle-session-timeout --to sprint:2 --cr CR-001
+# rewound. Backup branch: specmaker-backup/idle-session-timeout/20261125-083000
+# sprints 2 marked rewound; their tasks were unticked in backlog.md (L-008)
+# undo the code (specmaker/ state is kept): `git checkout specmaker-backup/idle-session-timeout/20261125-083000 -- . ':(exclude)specmaker'`
+```
+
+Skip the rewind when existing code can be adapted. Re-approval reopens the
+affected sprints anyway.
+
+**4. Apply through the design, then re-approve.**
+
+```bash
+S amend idle-session-timeout --cr CR-001 --to propose --reason "CR-001: per-team lifetime"
+```
+
+- Use `--to ideate` when the request changes goals, scope or the solution's
+  shape (HLD).
+- Use `--to propose` for behaviour, interfaces or data inside the same shape
+  (LLD and specs).
+
+The agent then works through the usual phases:
+
+1. Update only the affected design sections.
+2. Run a goldfish re-review of just those sections.
+3. Ask you for the verdict.
+
+On re-approval the script compares the requirements with the snapshot taken
+at `amend` time, and reopens the affected sprints:
+
+```text
+changed requirements since last approval: SESS-03
+sprint 2 REOPENED: its stories cover changed scenarios SESS-03.1; re-run it (`sprint-start idle-session-timeout 2`) and sign it off again
+```
+
+Scrum re-plans the affected stories (`S impact idle-session-timeout` now shows
+what changed since the snapshot). The reopened sprint runs again **before** any
+later sprint. Its sign-off needs fresh gates and a new verifier round; the
+script rejects evidence from the earlier run.
+
+**Guard rails that keep noise down**
+
+These are in `project.md` → Change Control:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `Sprint freeze` | `on` | Mid-sprint, only blockers can be accepted |
+| `Max amendments per change` | `3` | Beyond it, `amend` needs `--over-budget "<reason>"`. Repeated amendments usually mean the HLD was wrong; consider a new change from ideate |
+
+The script also blocks a few things outright:
+
+- a new sprint while a request decided as `amend` is not yet applied
+- retro while any request is still parked or unapplied
+- an amendment after planning that doesn't name its requests (`--cr`)
+
+Retro reports request counts by outcome and source, so you can see where the
+churn comes from.
 
 ## 14. Human-only tasks
 
@@ -748,12 +994,16 @@ The agent never ticks these. It asks you to do the task and tick it.
 S export idle-session-timeout --format csv > backlog.csv
 ```
 
+The first rows (epics and features come first, then each story followed by its tasks):
+
 ```text
 id,type,title,parent,points,priority,sprint,covers,depends,status,change
 E1,Epic,Sessions end when they should,,,,,,,,idle-session-timeout
 F1,Feature,Idle expiry,E1,,,,,,,idle-session-timeout
-S1,Story,"As a team member, I want idle sessions to end, so that a token left on a shared laptop stops working",F1,5,Must,1,SESS-02.1 SESS-02.2 SESS-02.3,S3,Done,idle-session-timeout
-T1.1,Task,"Write failing tests for SESS-02.1, SESS-02.2, SESS-02.3 - files: tests/test_session.py",S1,,,1,,,Done,idle-session-timeout
+F2,Feature,Absolute lifetime,E1,,,,,,,idle-session-timeout
+S3,Enabler,Enabler: injectable UTC clock for the session store,F1,1,Must,1,,,Done,idle-session-timeout
+T3.1,Task,Add `Clock` type and `utc_now()` - files: src/notes/clock.py,S3,,,1,,,Done,idle-session-timeout
+...
 ```
 
 Import the CSV with the tracker's own importer, mapping `parent` to the
@@ -814,6 +1064,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Lint active changes
@@ -825,7 +1076,24 @@ jobs:
           done
       - name: Living scenarios have tests
         run: python3 .agents/skills/specmaker/scripts/specmaker.py coverage --strict
+      - name: Every human decision is validly signed
+        env:
+          ALLOWED_SIGNERS: ${{ vars.SPECMAKER_ALLOWED_SIGNERS }}   # repository variable, edited by admins only
+        run: |
+          printf '%s\n' "$ALLOWED_SIGNERS" > "$RUNNER_TEMP/allowed_signers"
+          python3 .agents/skills/specmaker/scripts/specmaker.py verify --require-signed \
+            --allowed-signers "$RUNNER_TEMP/allowed_signers" \
+            --base "origin/${{ github.base_ref }}"   # add --require-hardware to insist on sk keys
 ```
+
+`checkout` needs `fetch-depth: 0` so the base branch is available for
+`--base`, which fails the job if a pull request deletes or edits any existing
+approval file: statements are append-only. `verify` covers active **and**
+archived changes. The signature check is where enforcement can't be faked from
+a developer machine. The signer list comes from CI configuration that only admins can
+change, and `--require-signed` rejects any decision without a valid signature,
+whatever `project.md` or `change.json` say. Make the job a required status check
+on your protected branch.
 
 `check` fails on a design that is still a draft, for example an HLD in progress.
 Run the job on the main branch, or let work-in-progress designs live on their
@@ -843,9 +1111,10 @@ In `project.md`:
 
 The agent then advances through phase gates on its own whenever the script's
 checks pass: ideate → propose, propose → accredit, scrum → sprint, and from one
-sprint to the next. It still stops for the two **human gates**, the
-accreditation verdict and each sprint sign-off. Keep `Human gates: terminal`
-with autopilot, so the stop does not depend on the model obeying the rule.
+sprint to the next. It still stops for the **human gates**: the accreditation
+verdict, each sprint sign-off, change-request decisions, rewinds and gated
+amendments. Keep `Human gates: signed` with autopilot: the stop then needs a
+signature, not just the model obeying a rule.
 
 **Non-interactive runs** (`opencode run`, CI): the agent cannot ask anything.
 Specmaker skills tell it to record design assumptions in the ledger and carry
@@ -867,18 +1136,32 @@ with `opencode run -s <session-id> "<your answer>"`.
 | `task has no 'files:' boundary` | End the task line with `- files: path/a, path/b` |
 | `design changed after accreditation` | Undo the edit, or `S amend` to reopen the design on purpose |
 | `gates ran at <sha> but HEAD is <sha>` | Commit, then run `S gates <id> N` again |
-| `this is a human gate, and project.md sets 'Human gates: terminal'` (exit 3) | Working as intended: run the printed command yourself in an interactive terminal. Agents must not retry it |
+| `this is a human gate, and human gates for this change are 'terminal'` (exit 3) | Working as intended: run the printed command yourself in an interactive terminal. Agents must not retry it |
+| `no allowed signers file exists` (exit 3) | Register yourself once: `S approvers add --principal <you> --key <key>.pub` (§3) |
+| `in signed mode --by must give your signer identity` | Add `--by <principal>`, the identity you registered with `approvers add` |
+| `'<name>' is not an approver` | That principal is not in the allowed signers file; `S approvers list` shows who is |
+| `the signature does not verify` | The key used to sign is not the one registered for that principal: set `SPECMAKER_SIGNING_KEY` to the right private key |
+| `the record differs from what was signed` / `signature does not verify` in `status` or `verify` | `change.json` or an approval statement was edited after signing. Restore it from git; if the decision really changed, sign a new one |
+| `is not referenced by any decision record` / `without gaps` | A decision record or a statement was deleted. Restore both from git; statements are append-only |
+| `requirements it covered ... changed after sign-off` / `was rewound after this sign-off` | The sprint's signed sign-off no longer describes it: re-run the sprint and sign it off again |
+| `OpenSSH ... is too old` / `OpenSSH (ssh-keygen) is required` | Install OpenSSH 8.1+ (`openssh-client` on Linux/WSL2) |
 | `no gate run recorded` | Run `S gates <id> N` before sign-off |
 | `<file> changed but is outside the sprint's task files` | Revert it, or record it under `## Deviations` |
 | `scenarios with no test referencing their ID` | Add tests named with the IDs (§12), or the human accepts with `--accept-gaps "reason"` |
+| `sprint N is active and the sprint freeze is on` | Working as intended: park the request; triage it at the sprint boundary, or mark it `--blocker` only if continuing would build something wrong |
+| `CR-NNN must be applied first` | A request decided as `amend` is waiting: `amend --cr CR-NNN`, re-accredit, then start the sprint |
+| `amendment budget reached` | Stop and discuss: re-ideate as a new change, or pass `--over-budget "<reason>"` with the human's agreement |
+| `the recorded gate run predates this sprint's (re)start` | A reopened or rewound sprint needs fresh evidence: run `gates` and a new verifier round |
 | `living [X-01] changed since accreditation` | Another change was archived first; re-base the delta, `amend`, re-accredit |
 | Skills don't trigger | Check they are side by side in a scanned folder (§1); name them explicitly (`@specmaker`) |
 | Agent says it cannot find `scripts/specmaker.py` | Install to a standard location (§1), or set `SPECMAKER_HOME` to the installed `specmaker` skill folder before starting the agent |
 
 ## 21. Command reference
 
-Every command accepts `--root <dir>` (default: the nearest `specmaker/`
-containing `project.md`, or `$SPECMAKER_ROOT`).
+Every command accepts `--root <dir>`, written **before** the command name:
+`S --root path/to/specmaker status`. Without it the workspace is
+`$SPECMAKER_ROOT` if set, otherwise the nearest `specmaker/` containing
+`project.md`, searching upward from the current folder.
 
 | Command | Example | Notes |
 |---|---|---|
@@ -887,15 +1170,24 @@ containing `project.md`, or `$SPECMAKER_ROOT`).
 | `list` | `S list --json` | Active changes, plus the latest archived |
 | `status` | `S status add-sso --json` | Phase, artifacts, lock, sprints, **next step** |
 | `check` | `S check add-sso specs backlog` | `hld lld specs adrs design backlog sprint:N`, or nothing for automatic; exit 1 on errors |
-| `set` | `S set add-sso depends_on other` | Keys: `skip_specs`, `docs_only`, `title`, `track`, `depends_on` |
+| `set` | `S set add-sso depends_on other` | Keys: `skip_specs`, `docs_only`, `title`, `track`, `depends_on`, `human_gates` (`signed`/`terminal`/`chat`; loosening is a human gate, `--by` names the approver) |
+| `approvers add` | `S approvers add --principal alex@example.com --key ~/.ssh/id_ed25519_sk.pub [--file PATH]` | Register an approver's public key in the allowed signers file |
+| `approvers list` / `approvers check` | `S approvers check [--file PATH]` | Show approvers and key types; `check` also shows the OpenSSH version and whether the signer list is protected |
+| `verify` | `S verify [<id>] --require-signed [--require-hardware] [--allowed-signers PATH] [--base REF]` | Verify the signed decision chain of active and archived changes (CI); `--base` also fails if any approval file was deleted or edited since REF; exit 1 on any problem |
 | `phase` | `S phase add-sso accredit` | One step forward, only if the entry gate passes |
 | `ledger` | `S ledger add-sso --kind declined --ref r1-critic#G2 "reason"` | Kinds: decision, declined, question, answer, deviation, condition, note. No text prints the ledger |
-| `accredit` | `S accredit add-sso --verdict conditional --condition "add audit log"` | Human verdict; locks the design. `terminal` mode: run it yourself and type your name. `chat` mode: the agent adds `--by "<name>"` |
-| `amend` | `S amend add-sso --reason "..."` | Back to propose; needs re-accreditation |
+| `accredit` | `S accredit add-sso --verdict conditional --condition "add audit log" --by alex@example.com` | Human verdict; locks the design. `signed` mode: you run it and sign (`--by` is your approver identity). `terminal`: you run it and type your name. `chat`: the agent adds `--by "<name>"` |
+| `cr add` | `S cr add add-sso --title "..." --by "Support" [--blocker]` | Record a request; it is parked |
+| `cr list` | `S cr list add-sso` | Requests and their status |
+| `cr decide` | `S cr decide add-sso CR-001 CR-002 --outcome reject --reason "..."` | Human decision: reject, defer, backlog or amend; the freeze applies |
+| `impact` | `S impact add-sso [--reqs AUTH-01]` | Changed requirements → scenarios, stories, files, tests, sprints |
+| `rewind` | `S rewind add-sso --to sprint:2 --cr CR-001` | Human gate: discard code with a backup branch and stash; records a new commit |
+| `amend` | `S amend add-sso --cr CR-001 --to ideate\|propose --reason "..."` | Reopen the design for decided requests; re-accreditation needs new review reports; budget applies (`--over-budget` is a human gate) |
+| `amend --wording-only` | `S amend add-sso --wording-only --reason "typo"` | Human gate: meaning-neutral fix; no new reviews needed, no sprints reopened; refused if any requirement or scenario ID changes |
 | `sprint-start` | `S sprint-start add-sso 2` | Previous sprints must be signed off; records the git base |
 | `gates` | `S gates add-sso 2 --timeout 900` | Runs `project.md` Quality Gates; writes `reviews/sprint-NN-gates.json` |
 | `trace` | `S trace add-sso --out reviews/trace.md --strict` | Scenario → story → test matrix |
-| `signoff` | `S signoff add-sso 2` | Human sign-off; re-checks all evidence; same terminal and chat rules as `accredit` |
+| `signoff` | `S signoff add-sso 2 --by alex@example.com` | Human sign-off; re-checks all evidence; same signed, terminal and chat rules as `accredit` |
 | `export` | `S export add-sso --format csv` | Backlog for trackers |
 | `coverage` | `S coverage --capability billing --strict` | Living-scenario test coverage |
 | `spec` | `S spec` · `S spec SESS-02` | Inventory, or one requirement's text |

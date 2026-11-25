@@ -20,27 +20,16 @@ metadata:
 *what we decided not to do*. It is not an LLD. Data models, APIs and libraries
 come later.
 
-**Locate specmaker first.** Some harnesses (OpenCode included) load this text
-without saying where the skill folder is (Claude Code fills in
-`${CLAUDE_SKILL_DIR}` below; elsewhere it is simply empty). Find it with:
+**Locate specmaker** (your harness may not say where this skill lives):
 
 ```bash
 R=$(git rev-parse --show-toplevel 2>/dev/null || pwd); for d in "$SPECMAKER_HOME" "${CLAUDE_SKILL_DIR}/../specmaker" "$R/.opencode/skills/specmaker" "$R/.agents/skills/specmaker" "$R/.claude/skills/specmaker" "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills/specmaker" "$HOME/.agents/skills/specmaker" "$HOME/.claude/skills/specmaker" $(ls -d "${CLAUDE_CODE_PLUGIN_CACHE_DIR:-$HOME/.claude/plugins}"/cache/*/specmaker/*/skills/specmaker 2>/dev/null | sort -V | tail -1); do [ -f "$d/scripts/specmaker.py" ] && { d=$(cd "$d" && pwd); case "$d" in "$R"/*) echo "${d#"$R"/}";; *) echo "$d";; esac; break; }; done
 ```
 
-Call the printed folder `SM`. It is relative to the project root when
-specmaker is installed in the project, so run specmaker commands from the
-project root and copy `SM` exactly. If nothing is printed, ask the user where
-specmaker is installed (or to set `SPECMAKER_HOME`). All seven specmaker
-skills must be installed side by side, including the core `specmaker` skill. Never guess paths from the
-project's working directory.
+Call the printed folder `SM`; run `python3 $SM/scripts/specmaker.py` from the project root. If nothing prints, ask the user to install all seven specmaker skills side by side, or to set `SPECMAKER_HOME`. This skill's own files are in `$SM/../specmaker-ideate/`.
 
-Then:
-
-- Run the helper script as `python3 $SM/scripts/specmaker.py <command>`.
 - Read `$SM/references/conventions.md` before starting.
 - Read `$SM/references/goldfish.md` only if you run the optional lens review.
-- This skill's own files (`references/`, `assets/`) are in `$SM/../specmaker-ideate/`.
 
 ## Steps
 
@@ -112,10 +101,19 @@ signs off on the HLD. It costs one reviewer per lens.
   idea (for example, "cost and scale" for a data pipeline, or "migration" for a
   rewrite).
 - Dispatch per goldfish.md with `Mode: BRAINSTORM`. Each reviewer gets the
-  persona path `references/lenses.md#<lens>`, `hld.md`, `project.md` and the
+  absolute path of `$SM/../specmaker-ideate/references/lenses.md` with the
+  instruction "read only the section `## <lens>`" as its persona, plus `hld.md`, `project.md` and the
   ledger. Reports go to `reviews/ideate-r1-<lens>.md`.
 - Summarise the two or three objections that matter most. Discuss each with
   the user, update the HLD, and record each outcome in the ledger.
+
+### Re-entry after `amend --to ideate`
+
+A change request altered goals, scope or the solution's shape. Read the
+requests being applied (`cr list` and `requests/CR-NNN.md`). Revise only the
+affected HLD sections, with the user, one question at a time. Record each
+revised decision in the ledger with `--ref CR-NNN`. Then continue to propose
+as usual.
 
 ### 5. Close
 

@@ -40,6 +40,7 @@ read a report while it is still being written.
 You are a goldfish reviewer. You have no memory of any conversation. Use only the files listed here.
 1. Read your persona: <ABS>/references/personas/<lens>.md
 2. Read the shared reviewer rules: <ABS-specmaker>/references/goldfish.md, section "Reviewer rules" only.
+   Naming guide, for the critic, readiness and verifier lenses: <ABS-specmaker>/references/naming.md
 3. Review these files: <ABS paths: hld.md, lld.md, specs/..., adrs/..., contracts/...>
 4. Settled decisions (do not re-raise them unless you have new evidence): <ABS>/ledger.md
 5. Project charter: <ABS>/specmaker/project.md

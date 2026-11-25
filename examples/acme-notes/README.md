@@ -32,6 +32,9 @@ cat specmaker/specs/identity/session/spec.md   # SESS-02 modified, SESS-03 added
 ls specmaker/adrs                              # ADRs promoted to the project log
 ```
 
+The example's `project.md` uses `Human gates: terminal`, so you can run it
+without registering an SSH key. New projects default to `signed`.
+
 Note: the example is not a git repository, so the sprint sign-offs show a
 warning that the file boundary was not checked. In a git project that check is
 enforced.

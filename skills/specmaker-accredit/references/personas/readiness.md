@@ -24,6 +24,9 @@ config key, a timeout, an error message, the handling of an edge case.
   method, where they apply.
 - **Environment:** config, secrets, infrastructure and CI changes the build
   needs are all listed.
+- **Names:** every new public module, type, function, field, config key, error
+  code and file is named in the design. An unnamed one is a decision left to
+  the implementer.
 
 ## Output
 

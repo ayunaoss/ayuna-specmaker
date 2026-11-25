@@ -125,12 +125,15 @@ that only a human can answer:
 >
 > **Alex:** approved, Alex Chen
 >
-> **Agent:** Human gates are set to `terminal`, so please record it yourself:
+> **Agent:** This project uses `terminal` human gates, so please record it yourself:
 > `python3 …/specmaker.py accredit idle-session-timeout --verdict approved`
 
 Alex runs that in their own terminal and types their name. Only then does the
 script record the verdict, as `via terminal`, and hash the five design files.
-An agent cannot do this step itself: its shell has no terminal. From now on, any
+(The example uses `terminal` gates so it runs without anyone's SSH key. New
+projects default to `signed`: Alex would add `--by alex@example.com` and touch
+a security key, and the verdict would be an SSH-signed statement that later
+steps and CI verify. See HOW-TO §4.4.) From now on, any
 edit to the design files shows up as `LOCK BROKEN` until someone runs `amend`
 on purpose.
 

@@ -64,6 +64,11 @@ memory. A restart signs everyone out, and that is accepted.
 - Mode: guided
 - Human gates: terminal
 
+## Change Control
+
+- Sprint freeze: on
+- Max amendments per change: 3
+
 ## Approvers
 
 - Alex Chen (tech lead)

@@ -24,26 +24,15 @@ satisfy three conditions:
 - The sprint plan follows the LLD's Implementation Phases, so each sprint ends
   with a buildable, tested system.
 
-**Locate specmaker first.** Some harnesses (OpenCode included) load this text
-without saying where the skill folder is (Claude Code fills in
-`${CLAUDE_SKILL_DIR}` below; elsewhere it is simply empty). Find it with:
+**Locate specmaker** (your harness may not say where this skill lives):
 
 ```bash
 R=$(git rev-parse --show-toplevel 2>/dev/null || pwd); for d in "$SPECMAKER_HOME" "${CLAUDE_SKILL_DIR}/../specmaker" "$R/.opencode/skills/specmaker" "$R/.agents/skills/specmaker" "$R/.claude/skills/specmaker" "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills/specmaker" "$HOME/.agents/skills/specmaker" "$HOME/.claude/skills/specmaker" $(ls -d "${CLAUDE_CODE_PLUGIN_CACHE_DIR:-$HOME/.claude/plugins}"/cache/*/specmaker/*/skills/specmaker 2>/dev/null | sort -V | tail -1); do [ -f "$d/scripts/specmaker.py" ] && { d=$(cd "$d" && pwd); case "$d" in "$R"/*) echo "${d#"$R"/}";; *) echo "$d";; esac; break; }; done
 ```
 
-Call the printed folder `SM`. It is relative to the project root when
-specmaker is installed in the project, so run specmaker commands from the
-project root and copy `SM` exactly. If nothing is printed, ask the user where
-specmaker is installed (or to set `SPECMAKER_HOME`). All seven specmaker
-skills must be installed side by side, including the core `specmaker` skill. Never guess paths from the
-project's working directory.
+Call the printed folder `SM`; run `python3 $SM/scripts/specmaker.py` from the project root. If nothing prints, ask the user to install all seven specmaker skills side by side, or to set `SPECMAKER_HOME`. This skill's own files are in `$SM/../specmaker-scrum/`.
 
-Then:
-
-- Run the helper script as `python3 $SM/scripts/specmaker.py <command>`.
 - Read `$SM/references/conventions.md` first.
-- This skill's own files (`references/`, `assets/`) are in `$SM/../specmaker-scrum/`.
 
 ## Steps
 
@@ -98,35 +87,46 @@ has started.
 
 ### 4. Validate
 
-Run `check <id> backlog` and fix every error. The script checks:
-
-- every scenario is covered, and every covered ID exists
-- every story has points and tasks, and every task has files
-- there are no dependency cycles and no dependency planned in a later sprint
-- every story is planned exactly once
-
-Then review the plan with the user: the sprint goals, the points per sprint
-against capacity, and the riskiest story. Adjust until they agree.
+Run `check <id> backlog` and fix every error (coverage, points, files,
+dependencies, plan). Then review the plan with the user: the sprint goals,
+the points against capacity, and the riskiest story.
 
 ### 5. Export (optional)
 
-If the team uses an issue tracker, run `export <id> --format csv` (Jira, Linear
-and GitHub Projects can import CSV) or `--format json` for scripts. Keep
-`backlog.md` as the source of truth, and sync status back into it, not the
-other way around.
+For an issue tracker, use `export <id> --format csv` (Jira, Linear and GitHub
+import it) or `--format json`. `backlog.md` stays the source of truth: sync
+status back into it, never the other way round.
 
 ### 6. Close
 
-Run `phase <id> sprint`. Tell the user that the sprint phase
-(`specmaker-sprint`) runs one sprint at a time and ends each with a human
-sign-off.
+Run `phase <id> sprint` (in guided mode, ask first and end your turn), and
+hand over to `specmaker-sprint`. Tell the user that it runs one sprint at a
+time, and that each sprint ends with their sign-off.
+
+## Re-planning after an amendment
+
+When scrum is re-entered after a re-approved amendment:
+
+1. Run `impact <id>`: the changed requirements, their stories, and the
+   reopened sprints.
+2. For each affected story, add tasks for the new or changed scenarios. Adjust
+   `**Covers**` when scenario IDs were added or removed, and re-estimate.
+   Stories that the change does not touch keep their ticks.
+3. Requests decided as `backlog` (class 1) are folded in now as new or changed
+   stories. Name the request in the story text, for example "(CR-004)".
+4. Reopened and rewound sprints keep their numbers and run first. Re-check the
+   capacity of the remaining sprints.
+5. Run `check <id> backlog`.
 
 ## Changing the backlog later
 
 The backlog is not locked, because plans change. During the sprint phase:
 
-- Add, split or re-plan stories freely, but run `check <id> backlog` after
-  every edit.
+- Changes asked for by people outside the team go through change requests
+  (`$SM/references/change-requests.md`): they are parked during a sprint and
+  folded in at the boundary.
+- Re-planning by the team itself (splitting, reordering, re-estimating) is
+  fine at any time, but run `check <id> backlog` after every edit.
 - Never delete a story that has finished tasks. Mark it `Won't` with a reason.
 - Removing scenario coverage is not a backlog change. It is a design change,
   so `amend` the design.

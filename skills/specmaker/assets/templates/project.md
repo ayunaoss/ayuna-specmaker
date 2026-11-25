@@ -21,7 +21,9 @@ ADR, not silently diverge.
 
 ## Conventions
 
-<!-- Code style, layout, naming, error handling, logging, branching/commit rules. Link existing docs instead of copying them. -->
+<!-- Code style, layout, error handling, logging, branching/commit rules. Link existing docs instead of copying them.
+     Naming follows the specmaker naming guide (references/naming.md in the specmaker skill). List here only the
+     repository's own naming rules that override it, e.g. "DB columns stay camelCase (legacy schema)". -->
 
 ## Rules by Phase
 
@@ -67,11 +69,24 @@ ADR, not silently diverge.
 
 <!-- Mode - guided: the agent asks at every phase gate. autopilot: the agent advances on its own
      through gates that are not human gates.
-     Human gates (accreditation verdict, sprint sign-off) - terminal: the script only records them when a
-     person types their name in an interactive terminal, so an agent cannot approve on its own (recommended).
-     chat: the agent records the decision after you state it in chat (faster; relies on the model obeying). -->
+     Human gates (accreditation verdict, sprint sign-off, change-request decisions, rewinds, gated amends) -
+     signed (default, recommended): each decision is a statement signed with the approver's SSH key and verified
+       against an allowed signers file outside the repository; with a hardware key (sk-*) it needs a touch.
+       Needs OpenSSH 8.1+. Each approver runs `approvers add` once.
+     terminal: a person types their name at an interactive terminal (a safeguard, not a security boundary).
+     chat: the agent records the decision after you state it in chat (relies on the model obeying).
+     A missing or unreadable line means signed. Each change keeps the mode it was created with;
+     loosening it is itself a human gate. -->
 - Mode: guided
-- Human gates: terminal
+- Human gates: signed
+
+## Change Control
+
+<!-- How change requests to a change in flight are handled (see references/change-requests.md in the specmaker skill).
+     Sprint freeze on: during a sprint only blocker requests can be accepted; others wait for the sprint boundary.
+     Max amendments per change: beyond this, `amend` needs --over-budget "<reason>". -->
+- Sprint freeze: on
+- Max amendments per change: 3
 
 ## Approvers
 

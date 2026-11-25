@@ -28,7 +28,10 @@ flowchart LR
 | retro | `specmaker-retro` | Metrics and lessons fed back into `project.md`; delta specs merged into living specs by ID; ADRs promoted; the change archived. Also runs drift checks |
 
 The core skill, `specmaker`, sets up the workspace, decides how much process a
-change deserves (**skip / lite / full**), and resumes work from the files.
+change deserves (**skip / lite / full**), and resumes work from the files. It
+also carries a multi-language
+[naming convention](skills/specmaker/references/naming.md) that every phase and
+reviewer applies.
 
 ## Why specmaker
 
@@ -52,13 +55,18 @@ It adapts the best of two projects, and fixes what their users complain about.
   - an agile planning layer
   - ADRs that outlive the change
 
+It also keeps change requests from eroding the specs. Requests are recorded
+and parked, and sprints are frozen except for blockers. Parked requests are
+triaged in batches by a human, then applied deliberately: a rewind if needed,
+the HLD or LLD, re-approval, and automatically reopened sprints.
+
 [docs/design.md](docs/design.md) maps each choice to the GitHub issues that
 motivated it.
 
 ## Install
 
-You need Python 3.8+ for the helper script (standard library only). Git is
-recommended. Always install **all seven** skills: the phase skills rely on the
+You need Linux, macOS or WSL2, with Python 3.8+ and OpenSSH 8.1+ (used to sign
+human approvals). Git is recommended. Always install **all seven** skills: the phase skills rely on the
 core `specmaker` skill.
 
 **Any agent, with the [skills CLI](https://skills.sh)** (OpenCode, Claude Code,
@@ -78,8 +86,8 @@ claude plugin marketplace add ayunaoss/ayuna-specmaker
 claude plugin install specmaker@ayuna
 ```
 
-Inside a session the same thing is `/plugin install specmaker --marketplace
-ayunaoss/ayuna-specmaker`.
+Inside a session: `/plugin marketplace add ayunaoss/ayuna-specmaker`, then
+`/plugin install specmaker@ayuna`.
 
 **Without Node, from a clone:**
 
@@ -112,11 +120,15 @@ any sprint is signed off. Then:
 ```
 
 From there the agent guides you phase by phase. It asks one question at a
-time and writes every artifact to a file. It stops at the two points where a
-human must decide: approving the design, and signing off each sprint. At
-those points you run one printed command in your own terminal and type your
-name. The script refuses to record either decision without a real terminal, so
-an agent cannot approve its own work. To pick up later, in any new session:
+time and writes every artifact to a file. At the points where a human must
+decide, the agent prints one command for you to run in your own terminal:
+approving the design, signing off a sprint, deciding a change request, and
+discarding code. The command **signs** the decision with your SSH key; a
+hardware key needs a touch. Later steps, and CI, verify those signatures, so
+an agent cannot approve its own work (see
+[HOW-TO §4.4](docs/how-to.md#44-accredit--reviews-verdict-lock)). Register
+your key once first: `approvers add` ([HOW-TO §3](docs/how-to.md#3-set-up-a-project)).
+To pick up later, in any new session:
 
 ```text
 @specmaker where are we?

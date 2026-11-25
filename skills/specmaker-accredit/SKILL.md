@@ -21,27 +21,15 @@ engineer could build without guessing. After that, the design is locked
 (hashed) so the build phases cannot drift from what was approved without anyone
 noticing.
 
-**Locate specmaker first.** Some harnesses (OpenCode included) load this text
-without saying where the skill folder is (Claude Code fills in
-`${CLAUDE_SKILL_DIR}` below; elsewhere it is simply empty). Find it with:
+**Locate specmaker** (your harness may not say where this skill lives):
 
 ```bash
 R=$(git rev-parse --show-toplevel 2>/dev/null || pwd); for d in "$SPECMAKER_HOME" "${CLAUDE_SKILL_DIR}/../specmaker" "$R/.opencode/skills/specmaker" "$R/.agents/skills/specmaker" "$R/.claude/skills/specmaker" "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills/specmaker" "$HOME/.agents/skills/specmaker" "$HOME/.claude/skills/specmaker" $(ls -d "${CLAUDE_CODE_PLUGIN_CACHE_DIR:-$HOME/.claude/plugins}"/cache/*/specmaker/*/skills/specmaker 2>/dev/null | sort -V | tail -1); do [ -f "$d/scripts/specmaker.py" ] && { d=$(cd "$d" && pwd); case "$d" in "$R"/*) echo "${d#"$R"/}";; *) echo "$d";; esac; break; }; done
 ```
 
-Call the printed folder `SM`. It is relative to the project root when
-specmaker is installed in the project, so run specmaker commands from the
-project root and copy `SM` exactly. If nothing is printed, ask the user where
-specmaker is installed (or to set `SPECMAKER_HOME`). All seven specmaker
-skills must be installed side by side, including the core `specmaker` skill. Never guess paths from the
-project's working directory.
+Call the printed folder `SM`; run `python3 $SM/scripts/specmaker.py` from the project root. If nothing prints, ask the user to install all seven specmaker skills side by side, or to set `SPECMAKER_HOME`. This skill's own files are in `$SM/../specmaker-accredit/`.
 
-Then:
-
-- Run the helper script as `python3 $SM/scripts/specmaker.py <command>`.
-- Read `$SM/references/conventions.md` and `$SM/references/goldfish.md` before
-  dispatching.
-- This skill's own files (`references/`, `assets/`) are in `$SM/../specmaker-accredit/`.
+- Read `$SM/references/conventions.md` and `$SM/references/goldfish.md` before dispatching.
 
 You are the elephant here. Never review the design yourself in place of a
 goldfish, and never soften findings on the design's behalf.
@@ -126,10 +114,8 @@ record as approver."**
   from earlier enthusiasm. If you cannot ask (see conventions §4a), stop.
 - Record it:
   `accredit <id> --verdict <v> --by "<name the user gave>" [--condition "..."]...`
-  - Check the mode in `status` first. With `Human gates: terminal`, do **not**
-    run `accredit` at all. Give the user the command (conventions §4), and say
-    plainly that they must run it themselves. Wait for "done", then check
-    `status`.
+  - In `signed` or `terminal` mode (see `status`), do **not** run it. Give the
+    user the command (conventions §4) and wait for "done".
   - Either way, the script checks that the design passes lint, that the
     minimum lenses have reported, and that `accreditation.md` exists. It then
     hashes the design files.
@@ -142,9 +128,13 @@ record as approver."**
 
 | Verdict | Next |
 |---|---|
-| approved | `phase <id> scrum`, then the scrum phase (`specmaker-scrum`). A docs-only change goes `phase <id> retro`. |
+| approved | `phase <id> scrum` (in guided mode, ask first), then the scrum phase (`specmaker-scrum`). A docs-only change goes `phase <id> retro`. |
 | conditional | Same as approved. Each condition becomes a ledger entry (`--kind condition`) and must appear as a story or task in the backlog. |
 | rejected | `amend <id> --reason "..."` to return to propose with the findings, or abandon the change if the user decides to. |
 
 Remind the user that from now on, any edit to the design files breaks the lock,
 and the sprint phase will refuse to continue until the design is re-accredited.
+
+After re-approving an amended design, the script reports which requirements
+changed and which signed-off sprints it **reopened**. Pass that on, and point to
+the scrum phase to re-plan them.

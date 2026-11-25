@@ -43,7 +43,11 @@ The sprint passes if:
    and the deviations. Flag undeclared files. Flag behaviour that appears in
    the code but in no spec ("gold plating"). Flag anything that crosses an HLD
    non-goal.
-6. **Evidence:** the gates record shows every gate passing, at a SHA that
+6. **Naming:** new names in the diff follow the LLD where it fixed them, and
+   otherwise the naming guide (`references/naming.md` in the specmaker
+   skill). Report breaks as Nit, or Major when a public API or contract is
+   affected.
+7. **Evidence:** the gates record shows every gate passing, at a SHA that
    matches HEAD. If the trace lists a scenario with no tests, that is a
    finding unless the sprint file records manual verification for it.
 

@@ -19,6 +19,9 @@
 | Gate failures before sign-off | |
 | Verifier FAIL rounds | |
 | Accepted test gaps | |
+| Change requests: received / rejected / deferred / backlog / amend | |
+| Blocker requests | |
+| Rewinds | |
 
 ## What Helped
 
