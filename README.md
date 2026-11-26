@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/specmaker.svg" alt="Ayuna specmaker logo" width="128"></p>
+
 # Ayuna specmaker
 
 **Spec-driven development for coding agents, as plain Agent Skills.** Specmaker
@@ -187,7 +189,7 @@ tests/                  script tests, including checks that the example stays va
 .claude-plugin/          Claude Code plugin and marketplace manifests
 .codex-plugin/          Codex plugin manifest (marketplace: .agents/plugins/marketplace.json)
 .antigravity-plugin/    Antigravity plugin manifest
-assets/specmaker.svg    plugin icon
+assets/specmaker.{svg,png} logo and plugin icon
 install.sh
 LICENSE                 MIT
 ```

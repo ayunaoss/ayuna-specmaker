@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -1902,6 +1903,10 @@ class HarnessPackaging(unittest.TestCase):
         self.assertRegex(plugin["name"], r"^[a-z0-9]+(-[a-z0-9]+)*$")
         self.assertEqual((plugin["name"], plugin["version"]), (claude["name"], claude["version"]))
         self.assertLessEqual(len(plugin["suggestedPrompts"]), 3)
+        logo = REPO / plugin["logo"]
+        self.assertTrue(plugin["logo"].startswith("./") and logo.is_file())
+        w, h = struct.unpack(">II", logo.read_bytes()[16:24])      # PNG IHDR: Antigravity wants >= 128x128
+        self.assertTrue(w == h >= 128, (w, h))
         for d in (REPO / "skills").iterdir():                     # plugin skill rules: name = folder, description <= 1024
             head = (d / "SKILL.md").read_text().split("\n---\n", 1)[0]
             self.assertEqual(re.search(r"(?m)^name: (.+)$", head).group(1).strip(), d.name)
