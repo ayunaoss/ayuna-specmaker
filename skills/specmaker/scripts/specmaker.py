@@ -3594,6 +3594,197 @@ def cmd_spec(a: argparse.Namespace) -> int:
             print(f"  [{r.id}] {r.title}  - {len(r.scenarios)} scenario(s)")
     return 0
 
+# --------------------------------------------------------------------------- doctor
+
+CORE_SKILLS = ["specmaker", "specmaker-ideate", "specmaker-propose", "specmaker-accredit",
+               "specmaker-scrum", "specmaker-sprint", "specmaker-retro"]
+INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md"]
+CANARY_RE = re.compile(r"\bSMK-[0-9a-f]{16}\b")
+
+
+def skill_meta(d: Path) -> Dict[str, str]:
+    """name and metadata.version from a SKILL.md frontmatter."""
+    f = d / "SKILL.md"
+    if not f.is_file():
+        return {}
+    m = re.match(r"^---\n(.*?)\n---", read(f), re.S)
+    fm = m.group(1) if m else ""
+    name = re.search(r"^name:\s*(\S+)", fm, re.M)
+    ver = re.search(r"^\s+version:\s*\"?([^\"\s]+)", fm, re.M)
+    return {"name": name.group(1) if name else "", "version": ver.group(1) if ver else ""}
+
+
+def skill_roots(project: Path) -> List[Path]:
+    """Folders that hold skill folders, for every harness and install method specmaker supports."""
+    home = Path.home()
+    cfg = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+    plain = [project / ".agents/skills", project / ".opencode/skills", project / ".claude/skills",
+             project / ".agent/skills", home / ".agents/skills", cfg / "opencode/skills", home / ".claude/skills",
+             home / ".gemini/config/skills", home / ".gemini/antigravity/skills",
+             home / ".gemini/antigravity-cli/skills", home / ".gemini/skills", home / ".codex/skills"]
+    globs = [(project / ".agents/plugins", "*/skills"), (home / ".gemini/config/plugins", "*/skills"),
+             (home / ".claude/plugins/cache", "*/specmaker/*/skills"),
+             (home / ".codex/plugins/cache", "*/specmaker/*/skills")]
+    out = [d for d in plain if (d / "specmaker/SKILL.md").is_file()]
+    for base, pat in globs:
+        if base.is_dir():
+            out += sorted(d for d in base.glob(pat) if (d / "specmaker/SKILL.md").is_file())
+    seen, uniq = set(), []
+    for d in out:
+        r = d.resolve()
+        if r not in seen:
+            seen.add(r)
+            uniq.append(d)
+    return uniq
+
+
+def probe_state_file(project: Path) -> Path:
+    """Outside the repository, so a reviewer reading files cannot find the canary (only its hash is kept)."""
+    base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "specmaker"
+    return base / f"probe-{hashlib.sha256(str(project).encode()).hexdigest()[:16]}.json"
+
+
+def probe_answer_file(ws: Workspace) -> Path:
+    return (ws.root if ws.root.is_dir() else ws.project) / ".isolation-probe.md"
+
+
+def doctor_checks(ws: Workspace) -> List[Tuple[str, str, str]]:
+    """(status, area, message) rows; status is PASS, WARN or FAIL."""
+    rows: List[Tuple[str, str, str]] = []
+    add = rows.append
+    add(("PASS", "python", f"{sys.version.split()[0]}"))
+    v = openssh_version()
+    if v and v >= MIN_OPENSSH:
+        add(("PASS", "openssh", ".".join(map(str, v))))
+    else:
+        add(("FAIL", "openssh", f"{'.'.join(map(str, v)) if v else 'not found'}: need {MIN_OPENSSH[0]}.{MIN_OPENSSH[1]}+ "
+             f"(openssh-client on Linux/WSL2)"))
+    add(("PASS", "git", "found") if shutil.which("git") else ("WARN", "git", "not found: trace, gates and checkpoints need git"))
+    # this installation: all core skills side by side, same version as the script
+    here = Path(__file__).resolve().parent.parent
+    add(("PASS", "install", f"script {VERSION} at {here}"))
+    for name in CORE_SKILLS:
+        meta = skill_meta(here.parent / name)
+        if not meta:
+            add(("FAIL", "install", f"{name} is missing next to {here.name}/: install all seven skills side by side"))
+        elif meta["name"] != name:
+            add(("FAIL", "install", f"{name}/SKILL.md names itself '{meta['name']}'"))
+        elif meta["version"] != VERSION:
+            add(("FAIL", "install", f"{name} is version {meta['version'] or '?'}, the script is {VERSION}: "
+                 f"a mixed install; reinstall all skills together"))
+    if not os.access(__file__, os.X_OK):
+        add(("WARN", "install", "scripts/specmaker.py is not executable; run it with python3"))
+    env = os.environ.get("SPECMAKER_HOME")
+    if env and Path(env).resolve() != here:
+        add(("WARN", "install", f"SPECMAKER_HOME={env} points elsewhere; the locate command prefers it over this copy"))
+    # other copies that an agent may load instead
+    for root in skill_roots(ws.project):
+        if (root / "specmaker").resolve() == here:
+            continue
+        other = skill_meta(root / "specmaker").get("version", "?")
+        status = "PASS" if other == VERSION else "WARN"
+        add((status, "copies", f"{root}/specmaker is version {other}"
+             + ("" if other == VERSION else f"; an agent may load it instead of {VERSION}: update or remove it")))
+    # workspace
+    if not (ws.root / "project.md").is_file():
+        add(("WARN", "workspace", f"no {DEFAULT_ROOT}/project.md here: run `init` in the project root"))
+        return rows + isolation_rows(ws)
+    add(("PASS", "workspace", f"{ws.root.relative_to(ws.project)}/"))
+    mode = project_gate_mode(ws)
+    if mode == "signed":
+        sf = signers_file()
+        principals = parse_signers(sf) if sf and sf.is_file() else []
+        if not principals:
+            add(("FAIL", "gates", "human gates are 'signed' but no approver is registered: `approvers add` (how-to §3)"))
+        else:
+            w = writable_by_me(sf)  # type: ignore[arg-type]
+            add(("WARN" if w else "PASS", "gates", f"signed; {len(principals)} approver(s) in {sf}"
+                 + (" (user-writable: an agent running as you could add a key; `approvers check`)" if w else "")))
+    else:
+        add(("WARN", "gates", f"human gates are '{mode}': weaker than 'signed' (design.md §4)"))
+    plan = (project_setting(ws, "Plan approval") or "full").lower().split()
+    if plan and plan[0] not in ("full", "all", "always", "required", "yes", "on", "off", "no", "false", "never"):
+        add(("WARN", "plan", f"Plan approval '{plan[0]}' is not recognised; treated as 'full'"))
+    pm = read(ws.root / "project.md")
+    if "replace with your test command" in pm:
+        add(("WARN", "quality gates", "project.md still has the placeholder test command"))
+    block = AGENTS_BLOCK.format(root=ws.root.relative_to(ws.project).as_posix())
+    for name in ("AGENTS.md", "CLAUDE.md"):
+        f = ws.project / name
+        if name == "CLAUDE.md" and not f.exists():
+            continue
+        text = read(f) if f.is_file() else ""
+        if block in text:
+            add(("PASS", "instructions", f"{name} has the current specmaker block"))
+        else:
+            add(("WARN", "instructions", f"{name} {'has an outdated' if AGENTS_START in text else 'lacks the'} "
+                 f"specmaker block: run `init` (idempotent)"))
+    return rows + isolation_rows(ws)
+
+
+def isolation_rows(ws: Workspace) -> List[Tuple[str, str, str]]:
+    seen = [n for n in INSTRUCTION_FILES if (ws.project / n).is_file()]
+    rows = [("PASS", "isolation", "no project instruction files for reviewers to inherit") if not seen else
+            ("WARN", "isolation", "reviewers may inherit " + ", ".join(seen) + ": expect 'partial' isolation")]
+    sf = probe_state_file(ws.project)
+    last = json.loads(read(sf)) if sf.is_file() else {}
+    if last.get("result"):
+        status = {"full": "PASS", "partial": "WARN"}.get(last["result"], "FAIL")
+        rows.append((status, "isolation", f"last probe {last['at']}: {last['result']}"))
+    else:
+        rows.append(("WARN", "isolation", "no probe recorded: `doctor --isolation start`, then run the printed probe"))
+    return rows
+
+
+def cmd_doctor(a: argparse.Namespace) -> int:
+    ws = Workspace.locate(a.root, must_exist=False)
+    if a.isolation == "start":
+        canary = "SMK-" + uuid.uuid4().hex[:16]
+        sf = probe_state_file(ws.project)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text(json.dumps({"hash": hashlib.sha256(canary.encode()).hexdigest(), "at": now()}), encoding="utf-8")
+        out = probe_answer_file(ws)
+        print(f"canary: {canary}\n(It is now in your context. Never pass it to the probe.)\n\n"
+              "Dispatch one fresh subagent with exactly this prompt:\n\n"
+              "  You are an isolation probe. Do not read or search any files.\n"
+              "  1. List every instruction file, memory or earlier conversation you can see, and quote the first line of each.\n"
+              "  2. Copy, verbatim, every token in your context that starts with SMK-. If there is none, write: no tokens.\n"
+              f"  Write your answer to {out} and reply with only that path.\n\n"
+              f"Then run: specmaker.py doctor --isolation check --report {out}")
+        return 0
+    if a.isolation == "check":
+        sf = probe_state_file(ws.project)
+        if not sf.is_file():
+            die("no probe started for this project: run `doctor --isolation start` first")
+        state = json.loads(read(sf))
+        rp = Path(a.report) if a.report else probe_answer_file(ws)
+        if not rp.is_file():
+            die(f"{rp} does not exist: the probe did not write its answer")
+        text = read(rp)
+        leaked = any(hashlib.sha256(t.encode()).hexdigest() == state.get("hash") for t in CANARY_RE.findall(text))
+        named = [n for n in INSTRUCTION_FILES if n.lower() in text.lower()]
+        result = ("none" if leaked else "partial" if named else "full")
+        state.update({"result": result, "at": now()})
+        sf.write_text(json.dumps(state), encoding="utf-8")
+        rp.unlink()
+        if leaked:
+            print("isolation: NONE. The probe saw the canary, so it sees this conversation: it is not a goldfish.\n"
+                  "Review in cold-read mode (goldfish.md §1).")
+            return 1
+        print(f"isolation: {result}" + (f" (instruction files visible: {', '.join(named)})" if named else "")
+              + "\nWrite it into each report header: Isolation: " + result)
+        return 0
+    rows = doctor_checks(ws)
+    if a.json:
+        print(json.dumps([{"status": st, "area": ar, "message": m} for st, ar, m in rows], indent=2))
+    else:
+        for st, ar, m in rows:
+            print(f"{st:5s} {ar:13s} {m}")
+        fails = sum(1 for r in rows if r[0] == "FAIL")
+        warns = sum(1 for r in rows if r[0] == "WARN")
+        print(f"\n{fails} failure(s), {warns} warning(s)")
+    return 1 if any(r[0] == "FAIL" for r in rows) else 0
+
 
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(prog="specmaker.py", description=__doc__.split("\n\n")[0])
@@ -3751,6 +3942,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     s.add_argument("--json", action="store_true")
     s.add_argument("--lint", action="store_true", help="lint all living specs; exit 1 on errors")
     s.set_defaults(fn=cmd_spec)
+    s = sub.add_parser("doctor", help="check the installation, workspace setup and reviewer isolation")
+    s.add_argument("--json", action="store_true")
+    s.add_argument("--isolation", choices=["start", "check"],
+                   help="start: print a canary and the probe prompt; check: read the probe's answer")
+    s.add_argument("--report", help="the probe's answer file (default: <workspace>/.isolation-probe.md)")
+    s.set_defaults(fn=cmd_doctor)
 
     a = p.parse_args(argv)
     return a.fn(a)

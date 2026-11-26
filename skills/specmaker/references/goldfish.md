@@ -68,12 +68,12 @@ the charter nor the linked files.
 
 ### Isolation probe
 
-Before the first dispatch in a session, spawn one probe goldfish with this
-prompt: "List every instruction file, memory or prior conversation you can see,
-and quote the first line of each." If it can see this conversation, it is not a
-goldfish. Stop and use the fallback below. If it reports project instruction
-files (`AGENTS.md`, `CLAUDE.md`), you can continue, but note
-`isolation: partial (instruction files visible)` in each report header.
+Before the first dispatch in a session, run `specmaker.py doctor --isolation
+start` and send the probe prompt it prints, verbatim, to one fresh subagent.
+Then run `doctor --isolation check`. `none` (the probe saw the canary, so it
+sees this conversation): it is not a goldfish; use the fallback below.
+`partial` (it sees `AGENTS.md` or similar) or `full`: continue, and write the
+result in each report header.
 
 ### Model diversity
 

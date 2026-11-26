@@ -142,14 +142,13 @@ flowchart LR
 | Subagents | `goldfish.md` maps the dispatch tool per harness (OpenCode `task`/`subagent`, Claude Code `Agent`, Codex `spawn_agent`, Antigravity `invoke_subagent`) |
 | No subagents | Cold-read mode via a new session |
 | Script | Python 3.8+ standard library only; no network; git optional; OpenSSH 8.1+ required for signed human gates. Supported: Linux, macOS, WSL2 |
-| Distribution | `skills/` is discovered by the `npx skills` CLI, which copies whole folders, keeps them as siblings and keeps the executable bit. The repository root is also a Claude Code plugin and a one-plugin marketplace (`.claude-plugin/plugin.json`, `marketplace.json`); `claude plugin validate .` passes. `install.sh` covers setups without Node |
+| Distribution | `skills/` is discovered by the `npx skills` CLI, which copies whole folders, keeps them as siblings and keeps the executable bit. The repository root is also a Claude Code plugin and a one-plugin marketplace (`.claude-plugin/plugin.json`, `marketplace.json`; `claude plugin validate .` passes), a Codex plugin (`.codex-plugin/plugin.json`, marketplace `.agents/plugins/marketplace.json`) and an Antigravity plugin (`.antigravity-plugin/plugin.json`, which takes precedence over a root `plugin.json`). Each harness has its own manifest folder because Antigravity's schema rejects unknown keys, so no shared root `plugin.json` exists. All three point at the same `skills/` folders. `install.sh` covers setups without Node (`--agent antigravity` for `~/.gemini/config/skills`) |
+| Install check | `doctor`: requirements, all seven skills side by side at one version, other installed copies an agent may load instead, workspace setup (approvers, instruction-file block, Quality Gates placeholder) |
+| Reviewer isolation | `doctor --isolation start` prints a canary into the parent agent's context and a probe prompt without it; `check` reads the probe's answer: canary present means the subagent sees the parent conversation (`none`, use cold-read mode); instruction files named means `partial`; otherwise `full`. Only the canary's hash is kept, outside the repository |
 | Claude Code locate | `${CLAUDE_SKILL_DIR}` is substituted in the skill text, so the locate command's first candidate is exact in plugin and plain-skills modes. The plugin cache (`~/.claude/plugins/cache/*/specmaker/*/`) is a fallback |
 | Project instructions | `init` writes the managed block to `AGENTS.md`, and also to `CLAUDE.md` when one exists, because Claude Code reads `AGENTS.md` only when there is no `CLAUDE.md` |
 
 Roadmap:
 
-- An Antigravity extension and a Codex plugin manifest wrapping the same skill
-  folders. Claude Code and the skills CLI are already supported.
 - Optional per-harness reviewer agent definitions with read-only permissions.
 - Spec stores shared across repositories.
-- A `doctor` command that verifies the installation and reviewer isolation.

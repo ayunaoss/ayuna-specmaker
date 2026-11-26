@@ -98,6 +98,15 @@ claude plugin install specmaker@ayuna
 Inside a session: `/plugin marketplace add ayunaoss/ayuna-specmaker`, then
 `/plugin install specmaker@ayuna`.
 
+**Codex plugin:** `codex plugin marketplace add ayunaoss/ayuna-specmaker`, then
+install `specmaker` from the `ayuna` marketplace.
+
+**Antigravity plugin:**
+
+```bash
+agy plugin install https://github.com/ayunaoss/ayuna-specmaker
+```
+
 **Without Node, from a clone:**
 
 ```bash
@@ -106,12 +115,15 @@ Inside a session: `/plugin marketplace add ayunaoss/ayuna-specmaker`, then
 
 This installs into `.agents/skills/`, the shared folder that OpenCode, Codex,
 Cursor and others read. Use `--agent claude` for Claude Code,
-`--agent opencode` for `.opencode/skills/`, `--global` for
+`--agent opencode` for `.opencode/skills/`, `--agent antigravity --global`
+for `~/.gemini/config/skills/`, `--global` for
 your user folder, `--link` to symlink, `--explicit-only` so the skills
 load only when you name them, and `--with-monorepo` to add the optional
 `specmaker-monorepo` skill.
 
-Details and invocation per agent are in [HOW-TO §1–2](docs/how-to.md#1-install).
+Then check the installation with
+`python3 <skills folder>/specmaker/scripts/specmaker.py doctor`. Details and
+invocation per agent are in [HOW-TO §1–2](docs/how-to.md#1-install).
 
 ## Quick start
 
@@ -172,6 +184,10 @@ skills/
 examples/acme-notes/    worked example project
 docs/                   how-to, walkthrough, design
 tests/                  script tests, including checks that the example stays valid
+.claude-plugin/          Claude Code plugin and marketplace manifests
+.codex-plugin/          Codex plugin manifest (marketplace: .agents/plugins/marketplace.json)
+.antigravity-plugin/    Antigravity plugin manifest
+assets/specmaker.svg    plugin icon
 install.sh
 LICENSE                 MIT
 ```

@@ -1865,3 +1865,150 @@ class LogicReview(unittest.TestCase):
         c = mod.Workspace(p.tmp / "specmaker").change("trim")
         self.assertFalse(mod.check_removals(c, only_reqs={"AUTH-03"}).ok)  # the sprint that removes it
         self.assertTrue(mod.check_removals(c, only_reqs={"AUTH-02"}).ok)   # another sprint is not blamed
+
+
+class HarnessPackaging(unittest.TestCase):
+    """Codex and Antigravity plugin manifests, plugin-install discovery and the Antigravity install target."""
+
+    def test_codex_manifest_and_marketplace(self) -> None:
+        plugin = json.loads((REPO / ".codex-plugin/plugin.json").read_text())
+        claude = json.loads((REPO / ".claude-plugin/plugin.json").read_text())
+        for key in ("name", "version", "description", "license", "homepage", "repository"):
+            self.assertEqual(plugin[key], claude[key], key)
+        self.assertTrue(plugin["author"]["name"])
+        self.assertTrue((REPO / plugin["skills"] / "specmaker/SKILL.md").is_file())
+        ui = plugin["interface"]
+        for key, limit in (("displayName", 30), ("shortDescription", 30), ("developerName", 80),
+                           ("longDescription", 4000)):
+            self.assertTrue(0 < len(ui[key]) <= limit, key)
+        self.assertTrue(ui["category"] and ui["capabilities"])
+        self.assertLessEqual(len(ui["defaultPrompt"]), 3)
+        self.assertTrue(all(len(x) <= 128 for x in ui["defaultPrompt"]))
+        self.assertRegex(ui["brandColor"], r"^#[0-9A-Fa-f]{6}$")
+        for key in ("composerIcon", "logo"):
+            self.assertTrue(ui[key].startswith("./") and (REPO / ui[key]).is_file(), key)
+        market = json.loads((REPO / ".agents/plugins/marketplace.json").read_text())
+        entry = market["plugins"][0]
+        self.assertEqual((entry["name"], entry["source"]["source"]), ("specmaker", "local"))
+        self.assertTrue((REPO / entry["source"]["path"] / ".codex-plugin/plugin.json").is_file())
+        self.assertTrue(entry["category"] and entry["policy"]["installation"])
+
+    def test_antigravity_manifest(self) -> None:
+        plugin = json.loads((REPO / ".antigravity-plugin/plugin.json").read_text())
+        claude = json.loads((REPO / ".claude-plugin/plugin.json").read_text())
+        allowed = {"$schema", "name", "displayName", "description", "version", "logo", "suggestedPrompts", "skills",
+                   "disabled", "author", "homepage", "repository", "license", "keywords", "extensions"}
+        self.assertEqual(set(plugin) - allowed, set())          # the published schema allows no other keys
+        self.assertRegex(plugin["name"], r"^[a-z0-9]+(-[a-z0-9]+)*$")
+        self.assertEqual((plugin["name"], plugin["version"]), (claude["name"], claude["version"]))
+        self.assertLessEqual(len(plugin["suggestedPrompts"]), 3)
+        for d in (REPO / "skills").iterdir():                     # plugin skill rules: name = folder, description <= 1024
+            head = (d / "SKILL.md").read_text().split("\n---\n", 1)[0]
+            self.assertEqual(re.search(r"(?m)^name: (.+)$", head).group(1).strip(), d.name)
+            desc = re.search(r"(?ms)^description: >-\n(.*?)^\w", head + "\nx").group(1)
+            self.assertLessEqual(len(" ".join(desc.split())), 1024, d.name)
+
+    def test_locate_finds_plugin_installs(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="specmaker-plugins-"))
+        try:
+            proj, home = tmp / "proj", tmp / "home"
+            proj.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=proj, check=True)
+            snip = re.search(r"```bash\n(R=\$\(git rev-parse[^\n]+)\n```",
+                             (REPO / "skills/specmaker-sprint/SKILL.md").read_text()).group(1)
+            env = {k: v for k, v in os.environ.items() if k not in ("SPECMAKER_HOME", "CLAUDE_SKILL_DIR",
+                                                                     "CLAUDE_CODE_PLUGIN_CACHE_DIR")}
+            env["HOME"] = str(home)
+            for layout in (".gemini/config/plugins/specmaker/skills", ".codex/plugins/cache/ayuna/specmaker/0.1.0/skills",
+                           ".gemini/config/skills"):
+                shutil.rmtree(home, ignore_errors=True)
+                shutil.copytree(REPO / "skills", home / layout)
+                out = subprocess.run(["bash", "-c", snip], cwd=proj, capture_output=True, text=True, env=env).stdout
+                self.assertEqual(out.strip(), str(home / layout / "specmaker"), layout)
+            shutil.rmtree(home)
+            shutil.copytree(REPO / "skills", proj / ".agents/plugins/specmaker/skills")   # Antigravity workspace plugin
+            out = subprocess.run(["bash", "-c", snip], cwd=proj, capture_output=True, text=True, env=env).stdout
+            self.assertEqual(out.strip(), ".agents/plugins/specmaker/skills/specmaker")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_install_antigravity_global(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="specmaker-agy-"))
+        try:
+            env = dict(os.environ, HOME=str(tmp))
+            subprocess.run(["bash", str(REPO / "install.sh"), "--agent", "antigravity", "--global"], cwd=tmp,
+                           check=True, capture_output=True, env=env)
+            self.assertTrue((tmp / ".gemini/config/skills/specmaker/scripts/specmaker.py").is_file())
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class Doctor(unittest.TestCase):
+    """`doctor`: installation, workspace setup and the reviewer isolation probe."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="specmaker-doctor-"))
+        self.proj = self.tmp / "proj"
+        self.proj.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=self.proj, check=True)
+        self.env = {k: v for k, v in os.environ.items() if k not in ("SPECMAKER_HOME", "SPECMAKER_ROOT")}
+        self.env.update(HOME=str(self.tmp / "home"), XDG_CACHE_HOME=str(self.tmp / "cache"),
+                        XDG_CONFIG_HOME=str(self.tmp / "config"),
+                        SPECMAKER_ALLOWED_SIGNERS=str(self.tmp / "config/allowed_signers"))
+        subprocess.run(["bash", str(REPO / "install.sh")], cwd=self.proj, check=True, capture_output=True, env=self.env)
+        self.script = self.proj / ".agents/skills/specmaker/scripts/specmaker.py"
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def doctor(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(self.script), "doctor", *args], cwd=self.proj,
+                              capture_output=True, text=True, env=self.env)
+
+    def test_installation_and_workspace(self) -> None:
+        r = self.doctor()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("no specmaker/project.md here", r.stdout)
+        subprocess.run([sys.executable, str(self.script), "init"], cwd=self.proj, check=True, capture_output=True,
+                       env=self.env)
+        r = self.doctor()
+        self.assertEqual(r.returncode, 1)                                   # signed mode, no approver registered
+        self.assertIn("no approver is registered", r.stdout)
+        self.assertIn("AGENTS.md has the current specmaker block", r.stdout)
+        self.assertIn("placeholder test command", r.stdout)
+        self.assertIn("reviewers may inherit AGENTS.md", r.stdout)
+        sk = self.proj / ".agents/skills/specmaker-scrum/SKILL.md"
+        sk.write_text(sk.read_text().replace('version: "0.1.0"', 'version: "0.0.9"'))
+        self.assertIn("a mixed install", self.doctor().stdout)
+        stale = self.tmp / "home/.claude/skills"
+        shutil.copytree(REPO / "skills", stale)
+        (stale / "specmaker/SKILL.md").write_text((stale / "specmaker/SKILL.md").read_text()
+                                                  .replace('version: "0.1.0"', 'version: "0.0.1"'))
+        self.assertIn("an agent may load it instead", self.doctor().stdout)
+        rows = json.loads(self.doctor("--json").stdout)
+        self.assertTrue(any(x["status"] == "FAIL" and x["area"] == "install" for x in rows))
+
+    def test_isolation_probe(self) -> None:
+        def start() -> str:
+            out = self.doctor("--isolation", "start").stdout
+            canary = re.search(r"canary: (SMK-[0-9a-f]{16})", out).group(1)
+            self.assertNotIn(canary, out.split("Dispatch one fresh subagent", 1)[1])   # the prompt never carries it
+            return canary
+
+        answer = self.proj / ".isolation-probe.md"
+        self.assertIn("no probe started", self.doctor("--isolation", "check").stderr)
+        canary = start()
+        cache = "".join(p.read_text() for p in (self.tmp / "cache").rglob("*.json"))
+        self.assertNotIn(canary, cache)                                      # only its hash is stored
+        answer.write_text(f"I can see the conversation. Tokens: {canary}\n")
+        r = self.doctor("--isolation", "check")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("isolation: NONE", r.stdout)
+        self.assertFalse(answer.exists())
+        start()
+        answer.write_text("AGENTS.md: first line '<!-- specmaker:start -->'. no tokens\n")
+        self.assertIn("isolation: partial", self.doctor("--isolation", "check").stdout)
+        start()
+        answer.write_text("Nothing visible. no tokens\n")
+        self.assertIn("isolation: full", self.doctor("--isolation", "check").stdout)
+        self.assertIn("last probe", self.doctor().stdout)

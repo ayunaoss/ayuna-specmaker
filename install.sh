@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the Ayuna specmaker skills into a project or user skills folder.
-# Usage: install.sh [--agent agents|opencode|claude] [--global | --target DIR] [--with-monorepo]
+# Usage: install.sh [--agent agents|opencode|claude|antigravity] [--global | --target DIR] [--with-monorepo]
 #                   [--link] [--explicit-only] [--force] [--dry-run] [--uninstall]
 set -euo pipefail
 
@@ -18,6 +18,7 @@ Targets:
   --agent agents     ./.agents/skills          (--global: ~/.agents/skills)   DEFAULT; read by OpenCode, Codex, Cursor, others
   --agent opencode   ./.opencode/skills        (--global: ~/.config/opencode/skills)
   --agent claude     ./.claude/skills          (--global: ~/.claude/skills)
+  --agent antigravity ./.agents/skills         (--global: ~/.gemini/config/skills)
   --target DIR       any directory
 
 Options:
@@ -52,9 +53,10 @@ if [[ -z "$target" ]]; then
     opencode:1) target="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills" ;;
     claude:0)   target=".claude/skills" ;;
     claude:1)   target="$HOME/.claude/skills" ;;
-    agents:0)   target=".agents/skills" ;;
+    agents:0|antigravity:0) target=".agents/skills" ;;
+    antigravity:1) target="$HOME/.gemini/config/skills" ;;
     agents:1)   target="$HOME/.agents/skills" ;;
-    *) echo "unknown agent '$agent' (opencode, claude, agents)" >&2; exit 2 ;;
+    *) echo "unknown agent '$agent' (agents, opencode, claude, antigravity)" >&2; exit 2 ;;
   esac
 fi
 
@@ -129,6 +131,7 @@ fi
 cat <<EOF
 
 Done. Next steps:
+  0. Check the installation: python3 $target/specmaker/scripts/specmaker.py doctor
   1. Register yourself as an approver (once per person; a hardware key is best):
        python3 $target/specmaker/scripts/specmaker.py approvers add --principal <you@example.com> --key ~/.ssh/id_ed25519_sk.pub
   2. Start your agent in the project (OpenCode: \`opencode\`) and say: @specmaker set this project up

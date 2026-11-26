@@ -53,7 +53,9 @@ skills.
 - **OpenSSH 8.1+** (`ssh-keygen -Y`), which signs and verifies human approvals.
   macOS ships it; on Linux and WSL2 install `openssh-client`. The installer
   refuses to continue without it.
-- Git, strongly recommended (sprint evidence and rewind use it) Install **all seven**: every phase skill needs the core
+- Git, strongly recommended (sprint evidence and rewind use it)
+
+Install **all seven**: every phase skill needs the core
 `specmaker` skill beside it. The repository is
 [github.com/ayunaoss/ayuna-specmaker](https://github.com/ayunaoss/ayuna-specmaker).
 
@@ -95,7 +97,39 @@ In a session, use `/plugin marketplace add ayunaoss/ayuna-specmaker`, then
 `/plugin install specmaker@ayuna`. The repository root is both the plugin and a
 one-plugin marketplace named `ayuna`. `claude plugin validate .` passes on it.
 
-### 1c. From a clone, with install.sh (no Node needed)
+### 1c. As a Codex plugin
+
+The repository is a Codex plugin (`.codex-plugin/plugin.json`) and a
+one-plugin marketplace (`.agents/plugins/marketplace.json`):
+
+```bash
+codex plugin marketplace add ayunaoss/ayuna-specmaker
+```
+
+Then install `specmaker` from the `ayuna` marketplace in the Codex plugin
+browser, or enable it per project in `.codex/config.toml`:
+
+```toml
+[plugins."specmaker@ayuna"]
+enabled = true
+```
+
+Codex also reads the plain skills in `.agents/skills/`, so 1a or 1e works
+without the plugin.
+
+### 1d. As an Antigravity plugin
+
+The repository is an Antigravity plugin (`.antigravity-plugin/plugin.json`):
+
+```bash
+agy plugin install https://github.com/ayunaoss/ayuna-specmaker
+```
+
+From a clone, `agy plugin install ../ayuna-specmaker` works too. Antigravity
+also reads `.agents/skills/` in the workspace, and `~/.gemini/config/skills/`
+globally (1e, `--agent antigravity --global`).
+
+### 1e. From a clone, with install.sh (no Node needed)
 
 ```bash
 git clone https://github.com/ayunaoss/ayuna-specmaker.git
@@ -120,6 +154,10 @@ Then pick the line for your agent:
 ../ayuna-specmaker/install.sh --agent opencode            # -> .opencode/skills/ (OpenCode-only folder)
 ```
 
+```bash
+../ayuna-specmaker/install.sh --agent antigravity --global  # -> ~/.gemini/config/skills/
+```
+
 Useful options:
 
 | Option | Effect |
@@ -130,12 +168,28 @@ Useful options:
 | `--dry-run` | Show what would be installed |
 | `--uninstall` | Remove the seven skill folders from the target |
 
-Check the result:
+Check the result, whichever way you installed:
 
 ```bash
-ls .agents/skills
-# specmaker  specmaker-accredit  specmaker-ideate  specmaker-propose  specmaker-retro  specmaker-scrum  specmaker-sprint
+python3 .agents/skills/specmaker/scripts/specmaker.py doctor
 ```
+
+```text
+PASS  python        3.12.3
+PASS  openssh       9.6
+PASS  git           found
+PASS  install       script 0.1.0 at /home/alex/shop/.agents/skills/specmaker
+WARN  copies        /home/alex/.claude/skills/specmaker is version 0.0.9; an agent may load it instead of 0.1.0: update or remove it
+WARN  workspace     no specmaker/project.md here: run `init` in the project root
+...
+0 failure(s), 2 warning(s)
+```
+
+`doctor` checks the requirements, that all seven skills sit side by side at
+one version, and other installed copies an agent might load instead. After
+`init` it also checks the workspace: approvers for signed gates, the
+`AGENTS.md`/`CLAUDE.md` block, and the Quality Gates placeholder. It exits 1 on
+any FAIL.
 
 The skills must stay **side by side** in the same folder. The phase skills reach
 the shared script and references through the `specmaker` folder next to them.
@@ -146,8 +200,9 @@ command that looks in these standard locations, in order:
 
 - `$SPECMAKER_HOME`
 - the project's `.opencode/skills`, `.agents/skills` or `.claude/skills`
-- the global `~/.config/opencode/skills`, `~/.agents/skills` or
-  `~/.claude/skills`
+- the global `~/.config/opencode/skills`, `~/.agents/skills`,
+  `~/.claude/skills` or `~/.gemini/config/skills`
+- plugin installs: Claude Code, Codex and Antigravity plugin folders
 
 If you install somewhere else (`--target DIR`), set
 `SPECMAKER_HOME=/abs/path/to/skills/specmaker` in the environment you start
@@ -791,6 +846,30 @@ restrictions. The verifier needs read-only shell access for `git diff`.
 
 ## 11. Review without subagents (cold-read mode)
 
+Before the first review in a session, the agent checks that its subagents
+really start fresh:
+
+```bash
+S doctor --isolation start
+```
+
+This prints a random canary (now in the agent's context) and a probe prompt
+without it. The agent sends the prompt to one fresh subagent, which writes
+what it can see to a file. Then:
+
+```bash
+S doctor --isolation check
+```
+
+```text
+isolation: partial (instruction files visible: AGENTS.md)
+Write it into each report header: Isolation: partial
+```
+
+If the probe repeats the canary, it sees the parent conversation: the result
+is `NONE` (exit 1), and reviews use cold-read mode. Only the canary's hash is
+stored, outside the repository, so a reviewer reading files cannot find it.
+
 If your agent cannot spawn subagents, or the isolation probe finds that a
 "fresh" reviewer can see your chat, the agent will not review the design in its
 own context. Instead it writes the reviewer prompt to a file and asks you to run
@@ -1246,5 +1325,6 @@ Every command accepts `--root <dir>`, written **before** the command name:
 | `signoff` | `S signoff add-sso 2 --by alex@example.com` | Human sign-off; re-checks all evidence; same signed, terminal and chat rules as `accredit` |
 | `export` | `S export add-sso --format csv` | Backlog for trackers |
 | `coverage` | `S coverage --capability billing --strict` | Living-scenario test coverage |
+| `doctor` | `S doctor [--json]` · `S doctor --isolation start` · `S doctor --isolation check [--report FILE]` | Requirements, installation, other copies, workspace setup; exit 1 on any FAIL. `--isolation` runs the canary probe of reviewer isolation (§11) |
 | `spec` | `S spec` · `S spec SESS-02` · `S spec --lint` | Inventory, one requirement's text, or lint all living specs (duplicate IDs across capabilities included; exit 1 on errors) |
 | `archive` | `S archive add-sso --dry-run` | Merge, verify, lint, promote ADRs, move to `archive/`; all or nothing (a failure restores every file) |
