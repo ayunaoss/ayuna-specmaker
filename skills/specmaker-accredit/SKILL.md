@@ -84,8 +84,9 @@ Follow the convergence rules in goldfish.md:
    Majors **one at a time**, with your recommended outcome (goldfish.md §4:
    FIX, CONTEST with evidence the reviewer was given, ESCALATE, or DECLINE
    for Majors only).
-2. Apply approved FIX edits. Record every CONTEST, DECLINE, ESCALATE outcome
-   and answered question in the ledger, with `--ref accredit-r<N>-<lens>#G<n>`.
+2. Apply approved FIX edits. Log every other outcome by its kind
+   (`contested`, `escalated`, `declined`, `condition`) and answers as
+   `answer`, with `--ref accredit-r<N>-<lens>#G<n>`.
 3. Re-run `check <id> design`.
 4. If Blockers or Majors with evidence remain and the round cap allows, run
    another round per goldfish.md §4 (it includes zoom-out on the diff).
@@ -123,6 +124,10 @@ record as approver."**
     hashes the design files.
   - Confirm with `status <id>` that the verdict was recorded before you
     continue.
+- **Before a conditional verdict:** record each condition in the ledger
+  (`--kind condition`, with `--ref <report>#G<n>` when it carries a Blocker).
+  A condition must be work the backlog can do without editing the design
+  files. One that needs a design change is a FIX, not a condition.
 - Write the verdict into the Verdict section of `accreditation.md`.
   `accreditation.md` is not locked, so this does not break the lock.
 
@@ -131,7 +136,7 @@ record as approver."**
 | Verdict | Next |
 |---|---|
 | approved | `phase <id> scrum` (in guided mode, ask first), then the scrum phase (`specmaker-scrum`). A docs-only change goes `phase <id> retro`. |
-| conditional | Same as approved. Each condition becomes a ledger entry (`--kind condition`) and must appear as a story or task in the backlog. |
+| conditional | Same as approved. Each condition must appear as a story or task in the backlog. |
 | rejected | `amend <id> --reason "..."` to return to propose with the findings, or abandon the change if the user decides to. |
 
 Remind the user that from now on, any edit to the design files breaks the lock,

@@ -21,10 +21,10 @@
 <!-- Answer both questions, then pick the class.
 Q1: Does it change anything observable from outside (a spec scenario, a contract, an accepted ADR)?
 Q2: Is it needed to meet the current HLD goals?
-- Class 0 Implementation: Q1 no, stays within the file boundary -> fix in the sprint
+- Class 3 New scope: Q2 no -> defer to a new change (check this first)
+- Class 0 Implementation: Q2 yes, Q1 no, stays within the file boundary -> fix in the sprint
 - Class 1 Plan: scenarios unchanged; order/size/split of work changes -> backlog
 - Class 2 Design: Q1 yes and Q2 yes -> amend (HLD if goals/scope/shape change, else LLD)
-- Class 3 New scope: Q2 no -> defer to a new change
 Blocker = continuing the current sprint would build something known to be wrong. -->
 - Q1 observable change:
 - Q2 needed for current goals:

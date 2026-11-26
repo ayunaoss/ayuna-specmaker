@@ -527,6 +527,10 @@ def check_specs(change: Change) -> Report:
         rep.err("specs/", "no delta specs. Add specs/<capability>/spec.md, or run "
                 "`specmaker.py set <id> skip_specs true` for a change with no behaviour change")
         return rep
+    if change.state.get("docs_only"):
+        for e in check_removals(change).errors:
+            rep.err("specs/", e.split(": ", 1)[1] + " - a docs-only change builds nothing, so it cannot retire "
+                    "IDs that tests or code name: use a lite change whose sprint updates them")
     living = load_living(change.ws)
     others = other_change_ids(change)
     seen: Dict[str, str] = {}
@@ -1345,13 +1349,15 @@ def review_lenses(change: "Change") -> Dict[str, List[int]]:
 REPORT_VERDICT_RE = re.compile(r"^\s*[-*]\s*Verdict\s*:\s*(PASS-WITH-NOTES|PASS|FAIL)\b", re.M | re.I)
 REPORT_BLOCKER_RE = re.compile(r"^###\s+(G\d+)\s+\[Blocker\]", re.M | re.I)
 LEDGER_ENTRY_RE = re.compile(r"^- \*\*(L-\d+)\*\* `([A-Z]+)`[^\n]*?\(re: ([^)]*)\)", re.M)
-LEDGER_REF_RE = re.compile(r"(accredit-r\d+-[a-z0-9-]+)(?:\.md)?#(G\d+)", re.I)
+LEDGER_REF_RE = re.compile(r"(?<![\w-])(?:accredit-)?(r\d+-[a-z0-9-]+?)(?:\.md)?#(G\d+)", re.I)
 
 
-def check_removals(change: Change) -> Report:
-    """Scenarios this change retires must have no tests or code left that reference them."""
+def check_removals(change: Change, only_reqs: Optional[set] = None) -> Report:
+    """Scenarios this change retires must have no tests or code left that reference them
+    (only those of `only_reqs` when given, e.g. the requirements one sprint removes or modifies)."""
     rep = Report()
-    retired = retired_scenarios(change)
+    retired = {sid: why for sid, why in retired_scenarios(change).items()
+               if only_reqs is None or sid.rsplit(".", 1)[0] in only_reqs}
     refs = scan_refs(change.ws, sorted(retired))
     for sid, why in sorted(retired.items()):
         left = refs[sid]["tests"] + refs[sid]["code"]
@@ -1359,6 +1365,12 @@ def check_removals(change: Change) -> Report:
             rep.err("removals", f"{sid} ({why}) is still referenced by {', '.join(left)}: "
                     f"delete or rewrite those tests and code")
     return rep
+
+
+def verification_verdict(text: str) -> Optional[str]:
+    """The binding verdict of a verifier report: its last Verdict line (a header line may come first)."""
+    found = re.findall(r"^\W*Verdict\W*:\s*(PASS-WITH-NOTES|PASS|FAIL)\b", text, re.M | re.I)
+    return found[-1].upper() if found else None
 
 
 def report_complete(text: str) -> bool:
@@ -1373,7 +1385,7 @@ def ledger_refs(change: "Change") -> Dict[Tuple[str, str], List[Tuple[str, str]]
     if f.is_file():
         for m in LEDGER_ENTRY_RE.finditer(read(f)):
             for rm in LEDGER_REF_RE.finditer(m.group(3)):
-                out.setdefault((rm.group(1).lower() + ".md", rm.group(2).upper()), []).append((m.group(1), m.group(2).lower()))
+                out.setdefault(("accredit-" + rm.group(1).lower() + ".md", rm.group(2).upper()), []).append((m.group(1), m.group(2).lower()))
     return out
 
 
@@ -1394,22 +1406,30 @@ def check_review_reports(change: "Change", verdict: str) -> Report:
             else:
                 rep.warn("reviews/", msg)
             continue
-        for g in REPORT_BLOCKER_RE.findall(text):
-            kinds = {k for _, k in refs.get((name, g.upper()), [])}
-            ok = "decision" in kinds or ("condition" in kinds and verdict == "conditional")
-            if not ok:
+        blockers = REPORT_BLOCKER_RE.findall(text)
+        vm = REPORT_VERDICT_RE.search(text)
+        if vm and vm.group(1).upper() == "FAIL" and not blockers:
+            rep.err("reviews/", f"{name} says FAIL but lists no '### G<n> [Blocker] ...' finding; "
+                    f"fix the report's format so each Blocker can be resolved and traced")
+        elif vm and vm.group(1).upper() != "FAIL" and blockers:
+            rep.err("reviews/", f"{name} lists Blocker(s) {', '.join(blockers)} but its verdict is "
+                    f"{vm.group(1).upper()}; a report with any Blocker is FAIL")
+        for g in blockers:
+            # Only the lens's latest report counts: a later round means the fix was re-reviewed.
+            # The ledger is append-only, so the latest settling entry is the one that stands.
+            entries = refs.get((name, g.upper()), [])
+            stance = [(lid, k) for lid, k in entries if k in FINDING_KINDS]
+            last = stance[-1] if stance else None
+            stray = [lid for lid, k in entries if k not in FINDING_KINDS]
+            hint = f"; {', '.join(stray)} reference it but are not finding outcomes" if stray else ""
+            if last and last[1] == "declined":
+                rep.err("ledger.md", f"{last[0]} declines Blocker {name}#{g}; a Blocker is never declined: fix it and "
+                        f"re-review, contest or escalate it (`--kind contested|escalated`), or make it a condition" + hint)
+            elif not last or (last[1] == "condition" and verdict != "conditional"):
                 rep.err("reviews/", f"Blocker {name}#{g} is unresolved: fix it and re-review the lens "
-                        f"(round {max(rounds) + 1}), contest or escalate it (`ledger --kind decision --ref {name}#{g}`)"
-                        f", or make it a condition of a conditional verdict (`--kind condition`)")
-    d = change.p("reviews")
-    for (name, g), entries in sorted(refs.items()):
-        f = d / name
-        if not f.is_file() or g not in [x.upper() for x in REPORT_BLOCKER_RE.findall(read(f))]:
-            continue
-        for lid, kind in entries:
-            if kind == "declined":
-                rep.err("ledger.md", f"{lid} declines Blocker {name}#{g}; a Blocker is never declined: "
-                        f"fix it, contest it with evidence, or make it a condition")
+                        f"(round {max(rounds) + 1}), contest or escalate it (`ledger --kind contested|escalated "
+                        f"--ref {name}#{g}`), or make it a condition of a conditional verdict (`--kind condition`)"
+                        + hint)
     return rep
 
 
@@ -2689,10 +2709,10 @@ def check_sprint(c: Change, n: int, for_signoff: bool) -> Report:
             rep.err(c.rel(vf), "this verification predates the sprint's (re)start; run a new verifier round "
                     "(sprint-NN-verification-r<N>.md)")
         else:
-            m = re.search(r"^\W*Verdict\W*:\W*(PASS-WITH-NOTES|PASS|FAIL)\b", read(vf), re.M | re.I)
-            if not m:
+            verdict = verification_verdict(read(vf))
+            if not verdict:
                 rep.err(c.rel(vf), "needs a 'Verdict: PASS | PASS-WITH-NOTES | FAIL' line")
-            elif m.group(1).upper() == "FAIL":
+            elif verdict == "FAIL":
                 rep.err(c.rel(vf), "verification verdict is FAIL")
         drift = c.lock_drift()
         if drift:
@@ -2830,7 +2850,10 @@ def cmd_gates(a: argparse.Namespace) -> int:
     return 0 if rec["passed"] else 1
 
 
-LEDGER_KINDS = ["decision", "declined", "question", "answer", "deviation", "condition", "note"]
+# decision: a design or process choice. contested / escalated / declined / condition: the outcome of a
+# review finding (--ref <report>#G<n>). answer: an answered reviewer question.
+LEDGER_KINDS = ["decision", "contested", "escalated", "declined", "condition", "question", "answer", "deviation", "note"]
+FINDING_KINDS = ("contested", "escalated", "declined", "condition")
 
 
 def cmd_ledger(a: argparse.Namespace) -> int:
@@ -3389,6 +3412,10 @@ def cmd_signoff(a: argparse.Namespace) -> int:
         if gaps and not a.accept_gaps:
             rep.err("trace", "scenarios with no test referencing their ID: " + ", ".join(gaps)
                     + " (add tests, or re-run with --accept-gaps \"<reason>\" after the human agrees)")
+        mine = {rid for sid in b.plan.get(n, []) if sid in b.stories
+                for rid in b.stories[sid].removes + [sc.rsplit(".", 1)[0] for sc in b.stories[sid].covers]}
+        rrep = check_removals(c, only_reqs=mine)
+        rep.extend(rrep)  # never accepted as a gap: leftover tests of removed behaviour are wrong, not missing
     print(rep.render(f"sign-off sprint {n}"))
     if not rep.ok:
         return 1

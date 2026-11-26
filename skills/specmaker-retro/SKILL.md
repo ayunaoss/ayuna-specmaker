@@ -109,6 +109,8 @@ Never edit living specs directly; they change only through `archive`.
 When a capability spec grows too large (dozens of requirements), or has
 requirements that overlap, propose a docs-only change that reorganises it:
 split it into child capabilities (`billing/invoices`, `billing/refunds`) or
-merge duplicates. Requirement IDs never change. Moving a requirement between
-capabilities is a REMOVED in one and an ADDED with a **new** ID in the other.
-Note the old ID in the Migration line.
+merge duplicates. An ID is never reused or renumbered in place. Moving a
+requirement between capabilities is a REMOVED in one and an ADDED with a
+**new** ID in the other. Note the old ID in the Migration line. If tests or
+code name the old scenario IDs, use a lite change (its sprint updates them),
+not docs-only: `check` refuses a docs-only change that retires named IDs.

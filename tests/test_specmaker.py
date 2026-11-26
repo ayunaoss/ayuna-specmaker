@@ -1704,8 +1704,8 @@ class LogicReview(unittest.TestCase):
     def test_removals_need_a_story_and_no_leftover_tests(self) -> None:
         p = self.p
         p.write("specmaker/specs/identity/session/spec.md", self.living())
-        p.write("tests/test_signout.py", "# covers: AUTH-03.1\ndef test_signout():\n    pass\n")
         self.to_retro_docs_only("drop-signout", self.REMOVE)
+        p.write("tests/test_signout.py", "# covers: AUTH-03.1\ndef test_signout():\n    pass\n")  # written later
         out = p.run("trace", "drop-signout").stdout
         self.assertIn("## Removals", out)
         self.assertIn("tests/test_signout.py", out)
@@ -1789,17 +1789,17 @@ class LogicReview(unittest.TestCase):
         p.run("ledger", "rv", "--kind", "declined", "--ref", "accredit-r1-readiness.md#G1", "not worth it")
         out = p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi", ok=False).stdout
         self.assertIn("L-001 declines Blocker accredit-r1-readiness.md#G1", out)
-        # a condition resolves it only for a conditional verdict; the declined entry still blocks
+        # a later condition supersedes the decline, but settles the Blocker only for a conditional verdict
         p.run("ledger", "rv", "--kind", "condition", "--ref", "accredit-r1-readiness.md#G1", "add the error code")
-        out = p.run("accredit", "rv", "--verdict", "conditional", "--condition", "error code", "--by", "Ravi",
-                    ok=False).stdout
-        self.assertNotIn("is unresolved", out)
-        self.assertIn("declines Blocker", out)
+        out = p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi", ok=False).stdout
+        self.assertIn("is unresolved", out)
+        self.assertNotIn("declines Blocker", out)
+        p.run("accredit", "rv", "--verdict", "conditional", "--condition", "error code", "--by", "Ravi")
 
     def test_blocker_fixed_and_rereviewed_or_contested(self) -> None:
         p = self.p
         self.review_setup(self.BLOCKER)
-        p.run("ledger", "rv", "--kind", "decision", "--ref", "accredit-r1-readiness#G1",
+        p.run("ledger", "rv", "--kind", "contested", "--ref", "accredit-r1-readiness#G1",
               "contested: doc:lld.md#Interfaces names the code")
         p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi")
         self.review_setup_round2()
@@ -1813,3 +1813,55 @@ class LogicReview(unittest.TestCase):
         self.assertIn("accredit-r2-readiness.md#G1 is unresolved", out)   # the r1 ledger entry does not carry over
         p.write("specmaker/changes/rv/reviews/accredit-r3-readiness.md", REPORT_PASS)
         p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi")
+
+    def test_ledger_stance_and_report_consistency(self) -> None:
+        p = self.p
+        self.review_setup(self.BLOCKER)
+        # the append-only ledger: a later decision supersedes an earlier decline (short ref form, as documented)
+        p.run("ledger", "rv", "--kind", "declined", "--ref", "r1-readiness#G1", "not worth it")
+        self.assertIn("L-001 declines Blocker", p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi",
+                                                      ok=False).stdout)
+        p.run("ledger", "rv", "--kind", "decision", "--ref", "r1-readiness#G1", "a decision is not a finding outcome")
+        out = p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi", ok=False).stdout
+        self.assertIn("L-001 declines Blocker", out)                     # a decision does not supersede a decline
+        self.assertIn("L-002 reference it but are not finding outcomes", out)
+        p.run("ledger", "rv", "--kind", "escalated", "--ref", "r1-readiness#G1", "owner: the code is in the contract")
+        rv = p.change("rv") / "reviews/accredit-r1-readiness.md"
+        rv.write_text(self.BLOCKER.replace("Verdict: FAIL", "Verdict: PASS"))
+        self.assertIn("a report with any Blocker is FAIL",
+                      p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi", ok=False).stdout)
+        rv.write_text(REPORT_PASS.replace("PASS", "FAIL"))
+        self.assertIn("says FAIL but lists no",
+                      p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi", ok=False).stdout)
+        rv.write_text(self.BLOCKER)
+        p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi")
+
+    def test_verifier_verdict_is_the_last_line(self) -> None:
+        mod = load_module()
+        self.assertEqual(mod.verification_verdict("- Verdict: <PASS | PASS-WITH-NOTES | FAIL>\n...\nVerdict: FAIL\n"),
+                         "FAIL")
+        self.assertEqual(mod.verification_verdict("- Verdict: PASS\n\nVerdict: PASS-WITH-NOTES\n"), "PASS-WITH-NOTES")
+        self.assertIsNone(mod.verification_verdict("no verdict\n"))
+
+    def test_docs_only_cannot_retire_named_ids(self) -> None:
+        p = self.p
+        p.write("specmaker/specs/identity/session/spec.md", self.living())
+        p.write("tests/test_signout.py", "# covers: AUTH-03.1\n")
+        p.run("new", "split", "--track", "lite")
+        p.run("set", "split", "docs_only", "true")
+        p.write("specmaker/changes/split/specs/identity/session/spec.md", self.REMOVE)
+        out = p.run("check", "split", "specs", ok=False).stdout
+        self.assertIn("a docs-only change builds nothing", out)
+        p.run("set", "split", "docs_only", "false")
+        p.run("check", "split", "specs")
+
+    def test_sprint_removals_are_scoped(self) -> None:
+        p = self.p
+        p.write("specmaker/specs/identity/session/spec.md", self.living())
+        p.write("tests/test_signout.py", "# covers: AUTH-03.1\n")
+        p.run("new", "trim", "--track", "lite")
+        p.write("specmaker/changes/trim/specs/identity/session/spec.md", self.REMOVE)
+        mod = load_module()
+        c = mod.Workspace(p.tmp / "specmaker").change("trim")
+        self.assertFalse(mod.check_removals(c, only_reqs={"AUTH-03"}).ok)  # the sprint that removes it
+        self.assertTrue(mod.check_removals(c, only_reqs={"AUTH-02"}).ok)   # another sprint is not blamed

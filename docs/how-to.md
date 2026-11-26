@@ -745,9 +745,11 @@ after the round cap (default 2 re-review rounds). Anything left is listed in
 
 A Blocker is never declined. `accredit` refuses a verdict while a Blocker in
 a lens's latest report has no later round and no ledger entry that contests or
-escalates it (`--kind decision`), or makes it a condition of a `conditional`
-verdict (`--kind condition`). It also refuses incomplete reports: no
-`Verdict:` line or no `## Findings`.
+escalates it (`--kind contested` or `escalated`), or makes it a condition of a `conditional`
+verdict (`--kind condition`). The ledger is append-only, so the latest
+entry for a finding stands. It also refuses incomplete reports (no
+`Verdict:` line or no `## Findings`), and a report whose verdict disagrees
+with its findings (FAIL without a Blocker, or a Blocker without FAIL).
 
 ## 10. Control review cost and reviewer model
 
@@ -1197,9 +1199,10 @@ with `opencode run -s <session-id> "<your answer>"`.
 | `amendment budget reached` | Stop and discuss: re-ideate as a new change, or pass `--over-budget "<reason>"` with the human's agreement |
 | `the recorded gate run predates this sprint's (re)start` | A reopened or rewound sprint needs fresh evidence: run `gates` and a new verifier round |
 | `<report> is incomplete (no 'Verdict:' line or '## Findings')` | The reviewer did not finish: re-dispatch once, otherwise record the lens as `not run` (§9) |
-| `Blocker <report>#G1 is unresolved` | Fix it and re-review the lens (a new round), contest or escalate it in the ledger (`--kind decision --ref <report>#G1`), or make it a condition of a `conditional` verdict (`--kind condition`) |
+| `Blocker <report>#G1 is unresolved` | Fix it and re-review the lens (a new round), contest or escalate it in the ledger (`--kind contested\|escalated --ref <report>#G1`), or make it a condition of a `conditional` verdict (`--kind condition`) |
 | `L-00N declines Blocker ...` | A Blocker is never declined. Fix it, contest it with evidence, or make it a condition |
 | `REMOVED [X-01] ... has no story` / `**Removes** [X-01], which no delta spec lists` | Add a story with `**Removes**: X-01` whose tasks delete the code and tests; list only REMOVED IDs |
+| `... a docs-only change builds nothing, so it cannot retire IDs that tests or code name` | Make it a lite change (`S set <id> docs_only false`); its sprint updates the tests |
 | `X-01.2 ([X-01] is removed) is still referenced by ...` | Delete or rewrite the listed tests and code; `S trace <id>` shows the Removals table |
 | `new capability needs a '## Purpose' of at least 50 characters` / `'## Purpose' is only for a new capability` | Write a real purpose for a new capability; remove the section from deltas of existing ones |
 | `not read: delta specs must be specs/<capability>/spec.md` | Move the text into that capability's `spec.md` |
@@ -1227,7 +1230,7 @@ Every command accepts `--root <dir>`, written **before** the command name:
 | `approvers list` / `approvers check` | `S approvers check [--file PATH]` | Show approvers and key types; `check` also shows the OpenSSH version and whether the signer list is protected |
 | `verify` | `S verify [<id>] --require-signed [--require-hardware] [--allowed-signers PATH] [--base REF]` | Verify the signed decision chain of active and archived changes (CI); `--base` also fails if any approval file was deleted or edited since REF; exit 1 on any problem |
 | `phase` | `S phase add-sso accredit` | One step forward, only if the entry gate passes |
-| `ledger` | `S ledger add-sso --kind declined --ref r1-critic#G2 "reason"` | Kinds: decision, declined, question, answer, deviation, condition, note. No text prints the ledger |
+| `ledger` | `S ledger add-sso --kind declined --ref r1-critic#G2 "reason"` | Kinds: `decision` (design or process choice); `contested`, `escalated`, `declined`, `condition` (outcome of a review finding, with `--ref <report>#G<n>`); `question`, `answer`, `deviation`, `note`. No text prints the ledger |
 | `accredit` | `S accredit add-sso --verdict conditional --condition "add audit log" --by alex@example.com` | Human verdict; locks the design. `signed` mode: you run it and sign (`--by` is your approver identity). `terminal`: you run it and type your name. `chat`: the agent adds `--by "<name>"` |
 | `cr add` | `S cr add add-sso --title "..." --by "Support" [--blocker]` | Record a request; it is parked |
 | `cr list` | `S cr list add-sso` | Requests and their status |

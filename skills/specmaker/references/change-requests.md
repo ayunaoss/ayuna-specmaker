@@ -63,11 +63,12 @@ For each request, fill its `requests/CR-NNN.md`:
    - Q1: does it change anything observable from outside (a spec scenario, a
      contract, an accepted ADR)?
    - Q2: is it needed to meet the current HLD goals?
-3. **Class:**
+3. **Class:** answer Q2 first. A request not needed for the current goals is
+   class 3, whatever Q1 says.
 
 | Class | Test | Outcome | Path |
 |---|---|---|---|
-| 0: Implementation | Q1 no; stays within the file boundary | not a CR: do it in the sprint, or note a deviation | sprint |
+| 0: Implementation | Q2 yes, Q1 no; stays within the file boundary | not a CR: do it in the sprint, or note a deviation | sprint |
 | 1: Plan | scenarios unchanged; order, size or split of work changes | `backlog` | edit `backlog.md`, `check backlog` |
 | 2: Design | Q1 yes and Q2 yes | `amend` | rewind if needed → `amend --to ideate\|propose` → re-accredit → re-plan → re-build |
 | 3: New scope | Q2 no | `defer` | a new change (`new <id>`), with `depends_on` if it overlaps |

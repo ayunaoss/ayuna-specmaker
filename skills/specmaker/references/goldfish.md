@@ -170,13 +170,17 @@ Reviews tend to keep producing findings forever. These rules make them stop:
      with evidence, or carried into a `conditional` verdict as a condition.
      The script refuses any verdict while the ledger declines a Blocker, or
      while a Blocker in a lens's latest report is neither re-reviewed nor
-     settled (`--kind decision` or `condition`).
+     settled (`--kind contested`, `escalated` or `condition`).
    Never change a reviewer's severity; contest it instead. Add text to the
    design only when a human reader needs it, not just to satisfy a reviewer.
    Nits are fixed if cheap, otherwise ignored.
-4. Record each CONTEST, DECLINE, ESCALATE and answered question in the ledger
-   (`--kind declined|decision|answer --ref <report>#G<n>`). This stops the next
-   round from re-raising them.
+4. Record each outcome in the ledger with `--ref <report>#G<n>`, using the
+   kind named after it: `contested`, `escalated`, `declined` or `condition`;
+   an answered question is `answer`. FIX needs no entry: the next round
+   reviews it. `decision` is for design and process choices, never for a
+   finding. This stops the next round from
+   re-raising them. The ledger is append-only: to change an outcome, add a new
+   entry; the latest one stands.
 5. **Re-review what changed:** the lenses that raised Blockers or Majors, plus
    zoom-out (if the preset has it), all scoped to the diff, so the fixes
    themselves get reviewed.
@@ -184,3 +188,7 @@ Reviews tend to keep producing findings forever. These rules make them stop:
    round cap in `project.md` (default 2 re-review rounds) is reached. At the
    cap, what remains, and every edit made after the last review round, is
    listed in `accreditation.md` as known risk, and the human decides.
+   **Exception:** a Blocker fixed in the last allowed round still needs its
+   lens to re-review the fix, scoped to that fix, even past the cap. If the
+   human will not run it, record their ruling (`--kind escalated`, in their
+   words) or carry it as a condition. The script refuses a verdict otherwise.

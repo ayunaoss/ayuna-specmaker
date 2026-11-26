@@ -80,7 +80,7 @@ has started.
 ### 3. Estimate and plan
 
 - Estimate in Fibonacci points, relative to the smallest story. Split anything
-  at 13 points. Spikes get a time box instead of points that look precise.
+  at 13 points. Give a spike the points its time box uses, and state the time box.
 - Fill in the `## Sprint Plan` table. Map LLD phases to sprints in order. Keep
   dependencies in the same or an earlier sprint. Stay within capacity, and leave
   slack (about 20%) for review and fixes. Each sprint has a goal that a person

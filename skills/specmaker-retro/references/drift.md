@@ -24,7 +24,8 @@ changes), before starting a change in an area, or on a schedule.
 4. For each divergence, the user decides:
    - **Code is wrong:** fix it now, or as a lite change.
    - **Spec is outdated:** open a change (lite, or docs-only if behaviour is
-     already in production) with a MODIFIED delta.
+     already in production and no test or code names a scenario it drops)
+     with a MODIFIED delta.
 
 Never edit living specs directly. They change only through `archive`, so every
 change to the source of truth has a review trail.
