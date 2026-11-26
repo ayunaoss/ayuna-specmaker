@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Install the Ayuna specmaker skills into a project or user skills folder.
-# Usage: install.sh [--agent agents|opencode|claude] [--global | --target DIR]
+# Usage: install.sh [--agent agents|opencode|claude] [--global | --target DIR] [--with-monorepo]
 #                   [--link] [--explicit-only] [--force] [--dry-run] [--uninstall]
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/skills"
 SKILLS=(specmaker specmaker-ideate specmaker-propose specmaker-accredit specmaker-scrum specmaker-sprint specmaker-retro)
+OPTIONAL=(specmaker-monorepo)   # companion skills: installed with their flag, removed by --uninstall
 
 agent="agents"; global=0; target=""; link=0; explicit=0; force=0; dry=0; uninstall=0
 
@@ -21,6 +22,7 @@ Targets:
 
 Options:
   --link             symlink skill folders instead of copying (updates follow the repo)
+  --with-monorepo    also install the optional specmaker-monorepo skill (Nx polyglot monorepos)
   --explicit-only    skills load only when named (@specmaker...), never auto-triggered
   --force            replace existing specmaker skill folders
   --dry-run          print what would happen
@@ -35,6 +37,7 @@ while [[ $# -gt 0 ]]; do
     --target) target="${2:-}"; shift 2 ;;
     --link) link=1; shift ;;
     --explicit-only) explicit=1; shift ;;
+    --with-monorepo) SKILLS+=(specmaker-monorepo); shift ;;
     --force) force=1; shift ;;
     --dry-run) dry=1; shift ;;
     --uninstall) uninstall=1; shift ;;
@@ -64,7 +67,7 @@ run() { if [[ $dry -eq 1 ]]; then echo "  would: $*"; else "$@"; fi; }
 
 if [[ $uninstall -eq 1 ]]; then
   echo "Removing specmaker skills from $target"
-  for s in "${SKILLS[@]}"; do
+  for s in "${SKILLS[@]}" "${OPTIONAL[@]}"; do
     if [[ -e "$target/$s" || -L "$target/$s" ]]; then run rm -rf "${target:?}/$s"; [[ $dry -eq 1 ]] || echo "  removed $s"; fi
   done
   exit 0

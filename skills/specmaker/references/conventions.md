@@ -25,8 +25,11 @@ skill wins for that phase.
 
 ## 3. Talking with the user
 
-- **One question per message** in ideate and propose, with your recommendation
-  and the reason for it.
+- **One question per message** in ideate and propose. Add your recommendation
+  and its reason when a choice has a clearly better answer. For problem
+  discovery, and for design choices with several defensible answers, lay out
+  the options without ranking them; if the user says "just pick", recommend
+  then.
 - Stress-test before agreeing: name the weakest point and the strongest
   alternative. No flattery, no filler apologies.
 - **Contradiction stop:** if a request contradicts the HLD, an accepted ADR,
@@ -42,6 +45,8 @@ skill wins for that phase.
   the check passes.
 - **Human gates** need a real person, in every mode:
   - `accredit`
+  - `approve-plan`
+  - `sprint-start --accept-prior`
   - `signoff`
   - `cr decide`
   - `rewind`

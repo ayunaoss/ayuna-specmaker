@@ -42,12 +42,20 @@ A change describes how it alters the living specs. Use these sections:
 
 | Section | Meaning | Rules |
 |---|---|---|
-| `## Purpose` | Purpose of a **new** capability | Required for a new capability; omit it for an existing one |
+| `## Purpose` | Purpose of a **new** capability | Required for a new capability: at least 50 characters, no placeholders. Omit it for an existing one (archive keeps the living purpose) |
 | `## ADDED Requirements` | New behaviour | The ID must not exist yet |
 | `## MODIFIED Requirements` | Changed behaviour, including a rename | Same ID. Write the **whole** new block, with every scenario that should remain |
 | `## REMOVED Requirements` | Behaviour that goes away | Keep the header and add `**Reason**:` and `**Migration**:` lines. No scenarios are needed |
 
 There is no RENAMED section: a stable ID makes a rename an ordinary MODIFIED.
+
+- Archive merges only `## Purpose` (new capability) and requirement blocks.
+  Any other text is not merged, and `check` warns about it.
+- The only file in a capability folder is `spec.md`. Any other file under
+  `specs/` is an error, because nothing would read it.
+- A MODIFIED block that leaves out an existing scenario retires that scenario.
+  So does REMOVED, for every scenario of the requirement. Tests and code that
+  still name a retired scenario block retro and archive (see `trace`).
 
 ## Writing requirements
 
@@ -57,6 +65,9 @@ There is no RENAMED section: a stable ID makes a rename an ordinary MODIFIED.
   `**WHEN**` (or `**GIVEN**`) step and a `**THEN**` step. `**AND**` and
   `**BUT**` steps are allowed.
 - Scenario IDs extend their requirement ID: `[AUTH-01.1]`, `[AUTH-01.2]`.
+- Inside a requirement, only `#### Scenario:` headings are allowed. Any other
+  `###`-`######` heading is an error, because it would hide text from checks.
+  Close every code fence (```` ``` ```` or `~~~`).
 - Cover failure and edge behaviour (invalid input, limits, concurrency,
   permissions), not only the happy path.
 - State non-functional needs (latency, availability, privacy) as requirements
@@ -72,4 +83,8 @@ There is no RENAMED section: a stable ID makes a rename an ordinary MODIFIED.
 
 At archive, the script checks that each requirement the change modifies or
 removes has not changed in the living specs since accreditation. It then
-verifies the merge result independently.
+verifies the merge result independently, lints it as `spec --lint` would, and
+writes all files at once: if anything fails, nothing changes.
+
+`specmaker.py spec --lint` lints all living specs, including duplicate IDs
+across capabilities.

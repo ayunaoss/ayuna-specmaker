@@ -47,7 +47,11 @@ The sprint passes if:
    otherwise the naming guide (`references/naming.md` in the specmaker
    skill). Report breaks as Nit, or Major when a public API or contract is
    affected.
-7. **Evidence:** the gates record shows every gate passing, at a SHA that
+7. **Removals:** for each requirement in a story's `Removes`, and each
+   scenario a MODIFIED requirement dropped, confirm that its code path is
+   gone and no test or code names its IDs (the trace's Removals table).
+   Leftover behaviour or a test still naming it is a Major.
+8. **Evidence:** the gates record shows every gate passing, at a SHA that
    matches HEAD. If the trace lists a scenario with no tests, that is a
    finding unless the sprint file records manual verification for it.
 

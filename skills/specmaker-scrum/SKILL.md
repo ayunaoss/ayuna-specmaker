@@ -66,6 +66,9 @@ Copy `assets/templates/backlog.md` to `changes/<id>/backlog.md`.
   - `**Type**`: `story` (the default), `enabler` (infrastructure or a
     refactor the stories need), `spike` (time-boxed learning, with a question
     and a time box), or `chore`. Only non-story types may cover no scenario.
+  - `**Removes**`: requirement IDs this story deletes (REMOVED in a delta
+    spec). Its tasks delete the code and the tests that name the old
+    scenarios. Every REMOVED requirement needs such a story.
 - **Tasks** (`- [ ] T<story>.<n> <imperative> - files: <paths>`) are concrete
   steps of a few hours each. The paths must come from the LLD File Boundary.
   Start each behaviour story with a task that writes the failing tests for its
@@ -97,9 +100,16 @@ For an issue tracker, use `export <id> --format csv` (Jira, Linear and GitHub
 import it) or `--format json`. `backlog.md` stays the source of truth: sync
 status back into it, never the other way round.
 
-### 6. Close
+### 6. Plan approval and close
 
-Run `phase <id> sprint` (in guided mode, ask first and end your turn), and
+Implementation never starts from an incomplete or unapproved plan. The tree
+must be whole (`check` rejects empty epics and features, stories without
+tasks, and tasks without files). Then a person approves it, a human gate
+(conventions §4): `approve-plan <id>`. It is required on the full track
+(`project.md`: `Plan approval: full | all | off`). Show the user the epics,
+features, stories, points and sprints, and ask for the approval.
+
+Then run `phase <id> sprint` (in guided mode, ask first and end your turn), and
 hand over to `specmaker-sprint`. Tell the user that it runs one sprint at a
 time, and that each sprint ends with their sign-off.
 
@@ -116,7 +126,8 @@ When scrum is re-entered after a re-approved amendment:
    stories. Name the request in the story text, for example "(CR-004)".
 4. Reopened and rewound sprints keep their numbers and run first. Re-check the
    capacity of the remaining sprints.
-5. Run `check <id> backlog`.
+5. Run `check <id> backlog`, then get the changed plan approved again
+   (`approve-plan`).
 
 ## Changing the backlog later
 

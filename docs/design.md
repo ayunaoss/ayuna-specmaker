@@ -79,6 +79,7 @@ each project's GitHub repository.
 | Too heavy for small changes | EGM #460, #258; OpenSpec bake-off (D#1159) | Triage: skip / lite / full; lite track skips HLD and epics and uses the quick preset |
 | Gates block automation, yet some users want hands-on control | EGM #288, Herd spike | `Autonomy: guided \| autopilot`; only the four human gates are absolute (verdict, sprint sign-off, change-request decision, rewind) |
 | Merge by header text is fragile: renames, dropped scenarios, conflicting changes | OpenSpec #1112, #1246, #1697, #2033 | Stable requirement and scenario IDs; merge by ID; no RENAMED (renames are MODIFIED); independent post-merge verification; base-hash check against concurrent changes; `depends_on` |
+| Parser and archive gaps: fences, hidden headings, text that never merges, stray files, removals nobody traces, half-written archives | Our logic review against OpenSpec (2026-11-26) | CommonMark fences (``` and ~~~, unclosed is an error); non-scenario headings inside a requirement are errors; unmerged delta text warns; only `specs/<capability>/spec.md` is read; Purpose rules; `spec --lint` and a lint of the merge result; REMOVED requirements need a `**Removes**` story and retired scenario IDs may not stay in tests or code; archive writes all files or none |
 | Ticked checkboxes are not evidence; archive with zero tasks done | OpenSpec #1652, #1142 | Gates run by the script and recorded with a commit SHA; sign-off re-checks everything; archive requires all sprints signed off |
 | No cross-artifact review; contradictions between design and specs | OpenSpec #783 | A dedicated `consistency` reviewer is required on every full-track change |
 | ADRs and design docs disappear into the archive | OpenSpec #557, #1980 | ADRs promoted to the project-wide `specmaker/adrs/` at archive |
@@ -124,12 +125,13 @@ flowchart LR
 |---|---|---|
 | ideate → propose | HLD lint | Agreement (guided mode) |
 | propose → accredit | Design lint (HLD, LLD, specs, ADRs) | Agreement (guided mode) |
-| verdict | Lint + minimum lenses + accreditation record | **Yes, SSH-signed** (or typed at a terminal, or named in chat, if configured) |
+| verdict | Lint + minimum lenses with complete reports + every Blocker re-reviewed or settled in the ledger (never declined) + accreditation record | **Yes, SSH-signed** (or typed at a terminal, or named in chat, if configured) |
 | accredit → scrum | Verdict approved or conditional, lock intact | No |
-| scrum → sprint | Backlog lint (coverage, files, dependencies, plan) | Agreement (guided mode) |
+| scrum → sprint | Backlog lint (complete epic → feature → story → task tree, coverage, files, dependencies, plan) and a current plan approval | **Yes, plan approval** (`approve-plan`; signed in signed mode; `Plan approval: full \| all \| off`) |
+| sprint-start | Plan unchanged since approval; no code changed since the last checkpoint (design approval, sign-off, rewind) | Only to accept prior code (`--accept-prior`) |
 | sprint sign-off | Tasks, deviations, gates at HEAD, verifier verdict, lock, boundary, trace | **Yes, SSH-signed** (or typed at a terminal, or named in chat, if configured) |
-| sprint → retro | All planned sprints signed off | No |
-| archive | Dependencies archived, no base drift, merge verified | Agreement |
+| sprint → retro | All planned sprints signed off; no test or code names a retired scenario | No |
+| archive | Dependencies archived, no base drift, no references to retired scenarios, merge verified and linted, written all-or-nothing | Agreement |
 
 ## 5. Harness portability
 

@@ -27,7 +27,18 @@ session. Never reuse a reviewer session.
 Run independent goldfish in parallel when the harness allows it. Each one
 writes its own report file, so a run that is cut off can resume. Before you
 dispatch, check which reports already exist for the round and skip those
-reviewers.
+reviewers, but only **complete** reports count (see "Failed reviewers").
+
+**Reviewers are read-only, and you check it.** Record `git status --porcelain`
+before dispatching and compare it afterwards. If a reviewer changed anything
+outside `reviews/`, restore those files from git, discard that report, and
+re-dispatch.
+
+**Failed reviewers.** A report without its `Verdict:` line and `## Findings`
+heading means the reviewer did not finish. Retry once. If it fails again,
+record the lens as `not run` in `accreditation.md`. A reviewer that did not
+run never counts as a pass. The script refuses a verdict without complete
+reports from the required lenses.
 
 In OpenCode 2.x the `subagent` tool returns immediately and the reviewer works
 in the background. Wait for each `<background-result kind="subagent">`
@@ -41,15 +52,19 @@ You are a goldfish reviewer. You have no memory of any conversation. Use only th
 1. Read your persona: <ABS>/references/personas/<lens>.md
 2. Read the shared reviewer rules: <ABS-specmaker>/references/goldfish.md, section "Reviewer rules" only.
    Naming guide, for the critic, readiness and verifier lenses: <ABS-specmaker>/references/naming.md
-3. Review these files: <ABS paths: hld.md, lld.md, specs/..., adrs/..., contracts/...>
-4. Settled decisions (do not re-raise them unless you have new evidence): <ABS>/ledger.md
+3. Review these files: <ABS paths: hld.md, lld.md, specs/..., adrs/..., contracts/..., plus files inside the
+   repository that these documents link to>
+4. Settled review outcomes (do not re-raise them unless you have new evidence): <ABS>/ledger.md
 5. Project charter: <ABS>/specmaker/project.md
 Mode: <REVIEW | BRAINSTORM | VERIFY>. Round: <N>. Scope: <whole document | sections changed since round N-1: ...>
 Write your report to <ABS>/reviews/<file>.md using the report format in the shared rules. Reply with only that path.
 ```
 
 Pass **only** paths. Never paste chat history, your reasoning, earlier findings
-(except through the ledger), or your opinion of the design.
+(except through the ledger), or your opinion of the design. In `Mode:
+BRAINSTORM`, do not pass the ledger: the lenses exist to challenge the
+decisions recorded there. The comprehension lens gets neither the ledger nor
+the charter nor the linked files.
 
 ### Isolation probe
 
@@ -106,8 +121,10 @@ the user may change it for this change.
   A Blocker or Major finding whose evidence is `question` is invalid. File it
   as a question instead. Use only these three severity words; never "Minor",
   "Low" or "Critical".
-- Do not re-raise anything in the ledger marked DECISION or DECLINED unless you
-  cite evidence the ledger entry did not consider.
+- Do not re-raise a ledger entry that settled an earlier review finding (an
+  entry whose reference points at a review report, or of kind DECLINED)
+  unless you cite evidence it did not consider. Other ledger decisions are
+  context, not protection: challenge them when the evidence calls for it.
 - Prefer a few findings that matter over a long list. If you find nothing above
   a Nit, say so plainly.
 
@@ -133,19 +150,37 @@ the user may change it for this change.
 
 Reviews tend to keep producing findings forever. These rules make them stop:
 
-1. **Triage** every Blocker and Major finding with the user, one at a time
-   where needed. Each gets one of these outcomes:
+1. **Zoom-out first.** Triage zoom-out Blockers before anything else. If one
+   changes the design's shape, set the other reports aside and re-dispatch
+   once the design is revised.
+2. **Merge duplicates** without losing their sources: each merged item keeps
+   every `<report>#G<n>` it came from.
+3. **Triage** every Blocker and Major finding with the user, one at a time
+   where needed. Each gets one outcome:
    - `FIX`: you propose the exact edit; the user approves it.
-   - `CONTEST`: the finding is wrong; cite the evidence the reviewer missed.
-   - `DECLINE`: the finding is valid but accepted as a trade-off; give the reason.
-   - `ESCALATE`: only the user can decide.
+   - `CONTEST`: the finding is wrong. Cite `doc:` or `code:` evidence the
+     reviewer **was given**. A memory of the conversation is not evidence;
+     without citable evidence, use `ESCALATE`. Never contest a comprehension
+     finding: if a fresh reader misunderstood, the text is unclear.
+   - `ESCALATE`: the answer lives outside the files. The user decides, and the
+     fact is then written into the design, or the user confirms that nothing
+     changes.
+   - `DECLINE` (**Majors and Nits only**): valid, but accepted as a trade-off,
+     with the reason. A **Blocker is never declined**: it is fixed, contested
+     with evidence, or carried into a `conditional` verdict as a condition.
+     The script refuses any verdict while the ledger declines a Blocker, or
+     while a Blocker in a lens's latest report is neither re-reviewed nor
+     settled (`--kind decision` or `condition`).
+   Never change a reviewer's severity; contest it instead. Add text to the
+   design only when a human reader needs it, not just to satisfy a reviewer.
    Nits are fixed if cheap, otherwise ignored.
-2. Record each CONTEST, DECLINE and answered question in the ledger
+4. Record each CONTEST, DECLINE, ESCALATE and answered question in the ledger
    (`--kind declined|decision|answer --ref <report>#G<n>`). This stops the next
    round from re-raising them.
-3. **Re-review only what changed**, and only with the lenses that raised
-   Blockers or Majors.
-4. **Stop** when a round has no Blocker or Major with evidence, or when the
+5. **Re-review what changed:** the lenses that raised Blockers or Majors, plus
+   zoom-out (if the preset has it), all scoped to the diff, so the fixes
+   themselves get reviewed.
+6. **Stop** when a round has no Blocker or Major with evidence, or when the
    round cap in `project.md` (default 2 re-review rounds) is reached. At the
-   cap, what remains is listed in `accreditation.md` as known risk, and the
-   human decides.
+   cap, what remains, and every edit made after the last review round, is
+   listed in `accreditation.md` as known risk, and the human decides.

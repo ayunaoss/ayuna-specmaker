@@ -47,7 +47,7 @@ EPIC_RE = re.compile(r"^##\s+(E\d+)\s*[-:—–]\s*(.+?)\s*$")
 FEAT_RE = re.compile(r"^###\s+(F\d+)\s*[-:—–]\s*(.+?)\s*$")
 STORY_RE = re.compile(r"^####\s+(S\d+)\s*[-:—–]\s*(.+?)\s*$")
 TASK_RE = re.compile(r"^\s*[-*]\s+\[([ xX~])\]\s+(T(\d+)\.(\d+))\b\s*(.*)$")
-FIELD_RE = re.compile(r"^\s*[-*]\s+\*\*(Points|Priority|Depends|Covers|Type)\*\*\s*:\s*(.*)$", re.I)
+FIELD_RE = re.compile(r"^\s*[-*]\s+\*\*(Points|Priority|Depends|Covers|Removes|Type)\*\*\s*:\s*(.*)$", re.I)
 FIB = {1, 2, 3, 5, 8, 13}
 PRIORITIES = {"must", "should", "could", "won't", "wont"}
 
@@ -128,12 +128,14 @@ class Skipper:
             if "-->" in line:
                 self.comment = False
             return True
-        m = re.match(r"^\s*(`{3,}|~{3,})", line)
+        m = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
         if self.fence:
-            if m and m.group(1)[0] == self.fence[0] and len(m.group(1)) >= len(self.fence):
+            # a closing fence is the same marker, at least as long, with nothing after it (CommonMark)
+            if m and m.group(1)[0] == self.fence[0] and len(m.group(1)) >= len(self.fence) and not m.group(2).strip():
                 self.fence = ""
             return True
-        if m:
+        # a backtick fence's info string may not contain a backtick: ```npm test``` is inline code, not a fence
+        if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
             self.fence = m.group(1)
             return True
         start = line.rfind("<!--")
@@ -281,10 +283,11 @@ class Change:
     def design_files(self) -> List[Path]:
         """Files frozen by accreditation."""
         files = [self.p(n) for n in ("hld.md", "lld.md") if self.p(n).is_file()]
-        files += self.adrs() + self.delta_specs()
-        contracts = self.p("contracts")
-        if contracts.is_dir():
-            files += sorted(f for f in contracts.rglob("*") if f.is_file())
+        files += self.adrs()
+        for sub in ("specs", "contracts"):   # every file, not only spec.md: nothing in the design escapes the lock
+            d = self.p(sub)
+            if d.is_dir():
+                files += sorted(f for f in d.rglob("*") if f.is_file())
         return files
 
     def rel(self, p: Path) -> str:
@@ -344,13 +347,17 @@ def parse_requirements(text: str, delta: bool) -> Tuple[List[Requirement], Repor
     """Parse requirement blocks. Returns (requirements, report, h2 sections)."""
     rep = Report()
     reqs: List[Requirement] = []
-    section = "LIVING"
+    section = "OTHER"       # text above the first section heading belongs to no requirements section
     cur: Optional[Requirement] = None
     cur_scn: Optional[Tuple[str, str, List[str]]] = None
     lines = text.splitlines()
     sk = Skipper()
+    fence_line = 0
     for i, line in enumerate(lines, 1):
+        was_fenced = bool(sk.fence)
         if sk.skip(line):
+            if sk.fence and not was_fenced:
+                fence_line = i
             if cur:
                 cur.lines.append(line)
                 if cur_scn:
@@ -395,10 +402,15 @@ def parse_requirements(text: str, delta: bool) -> Tuple[List[Requirement], Repor
             cur_scn = (f"{m.group(1)}.{m.group(2)}", m.group(3), [])
             cur.scenarios.append(cur_scn)
             continue
+        if cur and re.match(r"^#{3,6}\s", line):
+            rep.err(f"line {i}", f"heading '{line.strip()[:60]}' inside requirement [{cur.id}] is neither "
+                    f"'### Requirement: [ID] ...' nor '#### Scenario: [ID.n] ...'; it would be hidden from checks")
         if cur:
             cur.lines.append(line)
             if cur_scn:
                 cur_scn[2].append(line)
+    if sk.fence:
+        rep.err(f"line {fence_line}", "code block is never closed; everything after it is ignored")
     h2 = sections(text, 2)
     return reqs, rep, h2
 
@@ -416,14 +428,16 @@ def lint_requirement(r: Requirement, where: str, rep: Report) -> None:
     if r.id.startswith("AREA-"):
         rep.err(where, f"[{r.id}] still uses the template prefix AREA; use the capability's prefix from project.md")
     first_scn = next((k for k, ln in enumerate(r.lines) if SCN_LOOSE_RE.match(ln)), len(r.lines))
-    statement = strip_comments("\n".join(r.lines[1:first_scn])).strip()
+    sk = Skipper()
+    prose = [ln for ln in r.lines[1:first_scn] if not sk.skip(ln)]   # code examples are not the statement
+    statement = strip_comments("\n".join(prose)).strip()
     if re.fullmatch(r"The system (SHALL|MUST)\s*\.?", statement):
         statement = ""
     if not statement:
         rep.err(where, f"[{r.id}] has no requirement statement")
     elif not NORMATIVE_RE.search(statement):
         rep.err(where, f"[{r.id}] statement must use SHALL or MUST")
-    elif len(statement) > 600:
+    elif len(statement) > 500:
         rep.warn(where, f"[{r.id}] statement is {len(statement)} chars; state one behaviour and move detail into scenarios")
     if not r.scenarios:
         rep.err(where, f"[{r.id}] needs at least one scenario")
@@ -467,9 +481,46 @@ def load_living(ws: Workspace) -> Dict[str, Tuple[str, Requirement]]:
     return out
 
 
+PURPOSE_MIN = 50
+PURPOSE_PLACEHOLDER_RE = re.compile(r"\b(TBD|TODO|FIXME|XXX)\b|<[^>]+>", re.I)
+
+
+def unapplied_content(text: str) -> List[Tuple[int, str]]:
+    """(line, where) for delta text that archive does not merge: outside requirement blocks."""
+    out: List[Tuple[int, str]] = []
+    sk = Skipper()
+    h2, in_req = "", False
+    for i, line in enumerate(text.splitlines(), 1):
+        if sk.skip(line) or not strip_comments(line).strip():
+            continue
+        if re.match(r"^#\s", line):
+            continue
+        m = re.match(r"^##\s+(.+?)\s*$", line)
+        if m:
+            h2, in_req = m.group(1).strip().lower(), False
+            continue
+        if REQ_LOOSE_RE.match(line):
+            in_req = True
+            continue
+        if in_req or h2 == "purpose":
+            continue
+        where = (f"under '## {h2}' before its first requirement" if DELTA_SECTION_RE.match("## " + h2)
+                 else f"in section '## {h2}'" if h2 else "above the first section")
+        out.append((i, where))
+    return out
+
+
 def check_specs(change: Change) -> Report:
     rep = Report()
     deltas = change.delta_specs()
+    sdir = change.p("specs")
+    if sdir.is_dir():
+        for f in sorted(sdir.rglob("*")):
+            if f.is_file() and (f.name != "spec.md" or f.parent == sdir):
+                rep.err(change.rel(f), "not read: delta specs must be specs/<capability>/spec.md "
+                        "(merge it into that file, or move it)")
+    if deltas and change.state.get("skip_specs"):
+        rep.err("specs/", "skip_specs is set but delta specs exist: remove them, or `set <id> skip_specs false`")
     if not deltas:
         if change.state.get("skip_specs"):
             return rep
@@ -491,10 +542,18 @@ def check_specs(change: Change) -> Report:
         if not any(k in h2 for k in ("added requirements", "modified requirements", "removed requirements")):
             rep.err(where, "needs at least one of: '## ADDED Requirements', '## MODIFIED Requirements', '## REMOVED Requirements'")
         is_new = not living_spec_path(change.ws, cap).is_file()
+        purpose = h2.get("purpose")
         if is_new:
-            purpose = h2.get("purpose")
-            if purpose is None or len(strip_comments(purpose).strip()) < 40:
-                rep.err(where, "new capability needs a '## Purpose' of at least one full sentence")
+            ptext = strip_comments(purpose or "").strip()
+            if len(ptext) < PURPOSE_MIN:
+                rep.err(where, f"new capability needs a '## Purpose' of at least {PURPOSE_MIN} characters")
+            elif PURPOSE_PLACEHOLDER_RE.search(ptext):
+                rep.err(where, "'## Purpose' still contains a placeholder (TBD, TODO, <...>)")
+        elif purpose is not None:
+            rep.err(where, f"'## Purpose' is only for a new capability: '{cap}' exists and archive keeps its living "
+                    f"purpose, so this text would be lost (remove the section)")
+        for line_no, wh in unapplied_content(text):
+            rep.warn(where, f"line {line_no}: text {wh} is not merged into the living spec")
         if not reqs:
             rep.err(where, "no requirements found")
         for r in reqs:
@@ -513,7 +572,40 @@ def check_specs(change: Change) -> Report:
                     rep.err(where, f"{r.section} [{r.id}] does not exist in the living specs")
                 elif in_living[0] != cap:
                     rep.err(where, f"{r.section} [{r.id}] lives in capability '{in_living[0]}', not '{cap}'")
+                elif r.section == "MODIFIED":
+                    dropped = sorted({sid for sid, _, _ in in_living[1].scenarios} - {sid for sid, _, _ in r.scenarios})
+                    if dropped:
+                        rep.warn(where, f"MODIFIED [{r.id}] drops scenario(s) {', '.join(dropped)}: they leave the living "
+                                 f"spec at archive, and tests naming them must go too (see `trace`)")
     return rep
+
+
+def lint_living(texts: Dict[str, str]) -> Report:
+    """Lint living spec texts (path -> text): structure, requirement rules, duplicate IDs within and across files."""
+    rep = Report()
+    seen: Dict[str, str] = {}
+    for where, text in sorted(texts.items()):
+        reqs, prep, h2 = parse_requirements(text, delta=False)
+        for e in prep.errors:
+            rep.err(where, e)
+        if "requirements" not in h2:
+            rep.err(where, "missing '## Requirements'")
+        for r in reqs:
+            lint_requirement(r, where, rep)
+            if r.id in seen:
+                rep.err(where, f"[{r.id}] is defined more than once (also in {seen[r.id]})")
+            seen.setdefault(r.id, where)
+    return rep
+
+
+def living_texts(ws: "Workspace") -> Dict[str, str]:
+    if not ws.specs.is_dir():
+        return {}
+    return {f.relative_to(ws.project).as_posix(): read(f) for f in sorted(ws.specs.rglob("spec.md"))}
+
+
+def check_living(ws: "Workspace") -> Report:
+    return lint_living(living_texts(ws))
 
 
 def delta_req_ids(change: Change) -> Dict[str, str]:
@@ -555,6 +647,36 @@ def delta_scenarios(change: Change) -> Dict[str, Tuple[str, str]]:
             if r.section in ("ADDED", "MODIFIED"):
                 for sid, title, _ in r.scenarios:
                     out[sid] = (r.id, title)
+    return out
+
+
+def removed_reqs(change: Change) -> Dict[str, str]:
+    """REMOVED requirement id -> capability, over all delta specs of a change."""
+    out: Dict[str, str] = {}
+    for f in change.delta_specs():
+        for r in parse_requirements(read(f), delta=True)[0]:
+            if r.section == "REMOVED":
+                out[r.id] = capability_of(change, f)
+    return out
+
+
+def retired_scenarios(change: Change) -> Dict[str, str]:
+    """Scenario IDs this change retires -> why: every scenario of a REMOVED requirement and every
+    scenario a MODIFIED requirement drops. Tests and code must stop referencing them.
+    Read against the living specs, so it is meaningful until the change is archived."""
+    living = load_living(change.ws)
+    out: Dict[str, str] = {}
+    for f in change.delta_specs():
+        for r in parse_requirements(read(f), delta=True)[0]:
+            hit = living.get(r.id)
+            if not hit:
+                continue
+            old = {sid for sid, _, _ in hit[1].scenarios}
+            if r.section == "REMOVED":
+                out.update({sid: f"[{r.id}] is removed" for sid in old})
+            elif r.section == "MODIFIED":
+                kept = {sid for sid, _, _ in r.scenarios}
+                out.update({sid: f"dropped from [{r.id}]" for sid in old - kept})
     return out
 
 
@@ -646,6 +768,10 @@ class Story:
     @property
     def covers(self) -> List[str]:
         return SCENARIO_ID_RE.findall(self.fields.get("covers", ""))
+
+    @property
+    def removes(self) -> List[str]:
+        return re.findall(r"\b(" + ID_RE + r")\b(?!\.\d)", self.fields.get("removes", ""))
 
     @property
     def depends(self) -> List[str]:
@@ -757,7 +883,20 @@ def check_backlog(change: Change) -> Tuple[Report, Optional[Backlog]]:
         for fid, (_, eid) in b.features.items():
             if not eid:
                 rep.err("backlog.md", f"feature {fid} is not under an epic")
+    # the tree must be complete: no empty epic or feature (on any track)
+    for eid, title in b.epics.items():
+        has_feature = any(e == eid for _, e in b.features.values())
+        has_story = any(st.epic == eid for st in b.stories.values())
+        if full and not has_feature:
+            rep.err("backlog.md", f"epic {eid} ({title}) has no features")
+        elif not has_story:
+            rep.err("backlog.md", f"epic {eid} ({title}) has no stories")
+    for fid, (title, _) in b.features.items():
+        if not any(st.feature == fid for st in b.stories.values()):
+            rep.err("backlog.md", f"feature {fid} ({title}) has no stories")
     scen = delta_scenarios(change)
+    removed = removed_reqs(change)
+    removing: Dict[str, List[str]] = {}
     covered: Dict[str, List[str]] = {}
     wont_only: Dict[str, List[str]] = {}
     for s in b.stories.values():
@@ -776,8 +915,14 @@ def check_backlog(change: Change) -> Tuple[Report, Optional[Backlog]]:
             rep.warn(where, f"priority '{pri}' is not MoSCoW (Must/Should/Could/Won't)")
         wont = s.fields.get("priority", "").lower() in ("won't", "wont")
         stype = s.fields.get("type", "story").lower()
-        if not s.covers and stype not in ("enabler", "spike", "chore"):
-            rep.err(where, "**Covers** lists no scenario IDs (mark **Type**: enabler|spike|chore if it covers none)")
+        if not s.covers and not s.removes and stype not in ("enabler", "spike", "chore"):
+            rep.err(where, "**Covers** lists no scenario IDs (mark **Type**: enabler|spike|chore if it covers none, "
+                    "or list **Removes** for a story that deletes a requirement)")
+        for rid in s.removes:
+            if rid not in removed:
+                rep.err(where, f"**Removes** [{rid}], which no delta spec lists under REMOVED")
+            elif not wont:
+                removing.setdefault(rid, []).append(s.id)
         for sc in s.covers:
             if sc not in scen:
                 rep.err(where, f"covers unknown scenario {sc}")
@@ -794,7 +939,7 @@ def check_backlog(change: Change) -> Tuple[Report, Optional[Backlog]]:
             rep.err(where, "no tasks ('- [ ] T<story>.<n> <imperative> - files: <paths>')")
         for tid, _, text, line in s.tasks:
             if not re.search(r"\bfiles?\s*:\s*[^\s-]", text, re.I):
-                (rep.err if full else rep.warn)(f"backlog.md:{line} {tid}", "task has no 'files:' boundary")
+                rep.err(f"backlog.md:{line} {tid}", "task has no 'files:' boundary")
     for sc, (rid, title) in sorted(scen.items()):
         if sc in covered:
             continue
@@ -804,6 +949,10 @@ def check_backlog(change: Change) -> Tuple[Report, Optional[Backlog]]:
                     f"(a design change: `amend`)")
         else:
             rep.err("backlog.md", f"scenario {sc} ({title}) of [{rid}] is not covered by any story")
+    for rid, cap in sorted(removed.items()):
+        if rid not in removing:
+            rep.err("backlog.md", f"REMOVED [{rid}] ({cap}) has no story that deletes its code and tests: "
+                    f"add one with '**Removes**: {rid}'")
     # dependency cycles
     state: Dict[str, int] = {}
 
@@ -992,7 +1141,25 @@ def trace_matrix(change: Change, only: Optional[List[str]] = None) -> Tuple[str,
                     f"{'<br>'.join(tests) or '**none**'} | {'<br>'.join(refs[sc]['code']) or '-'} |")
     head = (f"# Traceability: {change.id}\n\nGenerated {now()} by specmaker.py trace. "
             f"{len(ids)} scenario(s), {len(ids) - len(gaps)} with tests, {len(gaps)} without.\n\n")
-    return head + "\n".join(rows) + "\n", gaps
+    out = head + "\n".join(rows) + "\n"
+    retired = retired_scenarios(change) if only is None else {}
+    if retired:
+        rrefs = scan_refs(change.ws, sorted(retired))
+        removers: Dict[str, List[str]] = {}
+        if b:
+            for s in b.stories.values():
+                for rid in s.removes:
+                    removers.setdefault(rid, []).append(s.id)
+        rows = ["| Retired scenario | Why | Stories | Still referenced by |", "|---|---|---|---|"]
+        for sid, why in sorted(retired.items()):
+            left = rrefs[sid]["tests"] + rrefs[sid]["code"]
+            if left:
+                gaps.append(sid)
+            rid = sid.rsplit(".", 1)[0]
+            rows.append(f"| {sid} | {why} | {', '.join(removers.get(rid, [])) or '-'} | "
+                        f"{'<br>'.join(left) or 'nothing (confirmed)'} |")
+        out += "\n## Removals\n\nThese must have no tests or code left.\n\n" + "\n".join(rows) + "\n"
+    return out, gaps
 
 
 # --------------------------------------------------------------------------- spec merge
@@ -1033,9 +1200,9 @@ def render_living(pre: str, reqs: List[Requirement], trailer: str) -> str:
     return out.rstrip() + "\n"
 
 
-def merge_change(change: Change, dry: bool) -> List[str]:
-    """Apply delta specs to living specs. Everything is rendered and verified in memory first;
-    files are written only when the whole merge verifies, so a failure changes nothing."""
+def merge_change(change: Change, plan: Dict[Path, str]) -> List[str]:
+    """Render delta specs onto living specs and verify the result in memory. Nothing is written
+    here: the verified texts are added to `plan`, which the caller applies all-or-nothing."""
     log = []
     expect_present: Dict[str, Tuple[str, int]] = {}
     expect_absent: Dict[str, str] = {}
@@ -1107,12 +1274,15 @@ def merge_change(change: Change, dry: bool) -> List[str]:
         new_extra = re.sub(r"(?ms)^###\s+Requirement:.*?(?=^##\s|\Z)", "", strip_comments(text))
         if old and old_extra.split() != new_extra.split():
             problems.append(f"text outside requirement blocks changed in {target.relative_to(change.ws.project)}")
+    # lint the result as it would be on disk: touched files fully, duplicate IDs across all files
+    touched = {t.relative_to(change.ws.project).as_posix(): x for t, x in outputs.items()}
+    merged = living_texts(change.ws)
+    merged.update(touched)
+    problems += [e for e in lint_living(merged).errors
+                 if e.split(": ", 1)[0] in touched or "defined more than once" in e]
     if problems:
         die("merge verification failed; nothing was written:\n  " + "\n  ".join(problems))
-    if not dry:
-        for target, text in outputs.items():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(text, encoding="utf-8")
+    plan.update(outputs)
     added = sum(1 for k in expect_present if k not in before)
     untouched = sum(1 for k in before if k not in expect_present and k not in expect_absent)
     log.append(f"verified: {added} added, {len(expect_present) - added} modified, "
@@ -1120,8 +1290,8 @@ def merge_change(change: Change, dry: bool) -> List[str]:
     return log
 
 
-def promote_adrs(change: Change, dry: bool) -> List[str]:
-    """Copy the change's ADRs into the project-wide decision log with global numbers."""
+def promote_adrs(change: Change, plan: Dict[Path, str]) -> List[str]:
+    """Plan copies of the change's ADRs into the project-wide decision log with global numbers."""
     dest = change.ws.root / "adrs"
     existing = [int(m.group(1)) for f in (dest.glob("*.md") if dest.is_dir() else [])
                 if (m := re.match(r"^(\d{4})-", f.name))]
@@ -1133,9 +1303,7 @@ def promote_adrs(change: Change, dry: bool) -> List[str]:
         text = read(f)
         text = re.sub(r"^(#\s*ADR)[- ]?\d{1,4}", lambda m: f"{m.group(1)}-{nxt:04d}", text, count=1, flags=re.M)
         text = text.rstrip() + f"\n\n<!-- promoted from change {change.id} ({f.name}) on {today()} -->\n"
-        if not dry:
-            dest.mkdir(parents=True, exist_ok=True)
-            (dest / name).write_text(text, encoding="utf-8")
+        plan[dest / name] = text
         log.append(f"adr     {change.rel(f)} -> adrs/{name}")
         nxt += 1
     return log
@@ -1172,6 +1340,77 @@ def review_lenses(change: "Change") -> Dict[str, List[int]]:
             if m:
                 out.setdefault(m.group(2), []).append(int(m.group(1)))
     return out
+
+
+REPORT_VERDICT_RE = re.compile(r"^\s*[-*]\s*Verdict\s*:\s*(PASS-WITH-NOTES|PASS|FAIL)\b", re.M | re.I)
+REPORT_BLOCKER_RE = re.compile(r"^###\s+(G\d+)\s+\[Blocker\]", re.M | re.I)
+LEDGER_ENTRY_RE = re.compile(r"^- \*\*(L-\d+)\*\* `([A-Z]+)`[^\n]*?\(re: ([^)]*)\)", re.M)
+LEDGER_REF_RE = re.compile(r"(accredit-r\d+-[a-z0-9-]+)(?:\.md)?#(G\d+)", re.I)
+
+
+def check_removals(change: Change) -> Report:
+    """Scenarios this change retires must have no tests or code left that reference them."""
+    rep = Report()
+    retired = retired_scenarios(change)
+    refs = scan_refs(change.ws, sorted(retired))
+    for sid, why in sorted(retired.items()):
+        left = refs[sid]["tests"] + refs[sid]["code"]
+        if left:
+            rep.err("removals", f"{sid} ({why}) is still referenced by {', '.join(left)}: "
+                    f"delete or rewrite those tests and code")
+    return rep
+
+
+def report_complete(text: str) -> bool:
+    """A finished goldfish report has its Verdict line and a '## Findings' heading."""
+    return bool(REPORT_VERDICT_RE.search(text)) and bool(re.search(r"^##\s+Findings\s*$", text, re.M | re.I))
+
+
+def ledger_refs(change: "Change") -> Dict[Tuple[str, str], List[Tuple[str, str]]]:
+    """(report file name, G<n>) -> [(ledger entry, kind)], from '(re: <report>#G<n>)' references."""
+    out: Dict[Tuple[str, str], List[Tuple[str, str]]] = {}
+    f = change.p("ledger.md")
+    if f.is_file():
+        for m in LEDGER_ENTRY_RE.finditer(read(f)):
+            for rm in LEDGER_REF_RE.finditer(m.group(3)):
+                out.setdefault((rm.group(1).lower() + ".md", rm.group(2).upper()), []).append((m.group(1), m.group(2).lower()))
+    return out
+
+
+def check_review_reports(change: "Change", verdict: str) -> Report:
+    """Reports must be complete, and every Blocker resolved: fixed and re-reviewed (a later round
+    of that lens), or settled in the ledger. A Blocker is never declined."""
+    rep = Report()
+    lenses = review_lenses(change)
+    refs = ledger_refs(change)
+    for lens, rounds in sorted(lenses.items()):
+        name = f"accredit-r{max(rounds)}-{lens}.md"
+        text = read(change.p("reviews") / name)
+        if not report_complete(text):
+            msg = (f"{name} is incomplete (no 'Verdict:' line or '## Findings'): the reviewer did not finish; "
+                   f"retry once, or record the lens as not run")
+            if lens in REQUIRED_LENSES[change.track]:
+                rep.err("reviews/", msg)
+            else:
+                rep.warn("reviews/", msg)
+            continue
+        for g in REPORT_BLOCKER_RE.findall(text):
+            kinds = {k for _, k in refs.get((name, g.upper()), [])}
+            ok = "decision" in kinds or ("condition" in kinds and verdict == "conditional")
+            if not ok:
+                rep.err("reviews/", f"Blocker {name}#{g} is unresolved: fix it and re-review the lens "
+                        f"(round {max(rounds) + 1}), contest or escalate it (`ledger --kind decision --ref {name}#{g}`)"
+                        f", or make it a condition of a conditional verdict (`--kind condition`)")
+    d = change.p("reviews")
+    for (name, g), entries in sorted(refs.items()):
+        f = d / name
+        if not f.is_file() or g not in [x.upper() for x in REPORT_BLOCKER_RE.findall(read(f))]:
+            continue
+        for lid, kind in entries:
+            if kind == "declined":
+                rep.err("ledger.md", f"{lid} declines Blocker {name}#{g}; a Blocker is never declined: "
+                        f"fix it, contest it with evidence, or make it a condition")
+    return rep
 
 
 def gate(change: Change, target: str) -> Report:
@@ -1221,6 +1460,9 @@ def gate(change: Change, target: str) -> Report:
     elif target == "sprint":
         brep, _ = check_backlog(change)
         rep.extend(brep)
+        problem = plan_approval_problem(change)
+        if problem and brep.ok:
+            rep.err("plan", problem.replace("<id>", change.id))
         drift = change.lock_drift()
         if drift:
             rep.err("lock", "design changed after accreditation: " + ", ".join(drift))
@@ -1234,6 +1476,7 @@ def gate(change: Change, target: str) -> Report:
                 if sprints.get(str(n), {}).get("status") != "signed-off":
                     rep.err("sprints", f"sprint {n} is not signed off"
                             + (f" (it is {sprints[str(n)]['status']})" if str(n) in sprints else ""))
+        rep.extend(check_removals(change))
 
     return rep
 
@@ -1252,6 +1495,9 @@ def next_step(change: Change) -> str:
             return "Accredited. Run `phase <id> scrum` (skill: specmaker-scrum)."
         return "Run goldfish reviews and get the human verdict (skill: specmaker-accredit)."
     if ph == "scrum":
+        if plan_required(change) and plan_approval_problem(change):
+            return ("Build backlog.md with sprint plan (skill: specmaker-scrum); a person approves it with "
+                    "`approve-plan <id>`; then `phase <id> sprint`.")
         return "Build backlog.md with sprint plan (skill: specmaker-scrum), then `phase <id> sprint`."
     reqs = change.state.get("requests", {})
     blockers = [k for k, r in reqs.items() if r.get("status") == "parked" and r.get("blocker")]
@@ -1396,7 +1642,8 @@ def decision_records(c: "Change") -> List[Tuple[str, str, dict, dict]]:
 
     def acc_facts(acc: dict) -> dict:
         return {"verdict": acc.get("verdict"), "conditions": acc.get("conditions") or [],
-                "lock_digest": digest(acc["lock"]) if acc.get("lock") else None, "round": acc.get("round")}
+                "lock_digest": digest(acc["lock"]) if acc.get("lock") else None, "round": acc.get("round"),
+                "head": acc.get("head")}
     acc = st.get("accreditation")
     if acc and acc.get("verdict"):
         out.append(("accreditation", "accredit", acc, {**acc_facts(acc), "_current": True}))
@@ -1430,6 +1677,13 @@ def decision_records(c: "Change") -> List[Tuple[str, str, dict, dict]]:
                         {"index": i, "reason": am.get("reason"), "crs": am.get("crs") or [],
                          "wording_only": bool(am.get("wording_only")), "over_budget": am.get("over_budget"),
                          "req_digest": digest(am.get("req_hashes_before") or {}), "_required": True}))
+    for i, pa in enumerate(st.get("plan_approvals", [])):
+        out.append((f"plan approval #{i + 1}", "plan", pa, {"backlog_digest": pa.get("backlog_digest"),
+                                                            "sprints": pa.get("sprints")}))
+    for i, ap in enumerate(st.get("accepted_prior", [])):
+        out.append((f"accepted prior changes #{i + 1}", "accept-prior", ap,
+                    {"sprint": ap.get("sprint"), "files": ap.get("files"), "reason": ap.get("reason"),
+                     "checkpoint": ap.get("checkpoint")}))
     for i, g in enumerate(st.get("gate_changes", [])):
         out.append((f"human_gates change #{i + 1}", "set-human-gates", g, {"from": g.get("from"), "value": g.get("value")}))
     return out
@@ -2254,6 +2508,7 @@ def cmd_accredit(a: argparse.Namespace) -> int:
     for lens in REQUIRED_LENSES[c.track]:
         if lens not in lenses:
             rep.err("reviews/", f"no goldfish report for lens '{lens}' (reviews/accredit-r<N>-{lens}.md)")
+    rep.extend(check_review_reports(c, a.verdict))
     amends = c.state.get("amendments", [])
     last = amends[-1] if amends else None
     if last and c.state.get("accreditation") is None:
@@ -2281,17 +2536,20 @@ def cmd_accredit(a: argparse.Namespace) -> int:
     parts = ["accredit", c.id, "--verdict", a.verdict] + [x for cond in (a.condition or []) for x in ("--condition", cond)]
     lock = {c.rel(f): sha256(f) for f in c.design_files()} if a.verdict in ("approved", "conditional") else None
     rnd = len(c.state.get("amendments", []))
+    head = git(ws, "rev-parse", "HEAD")
     payload = {"action": "accredit", "verdict": a.verdict, "conditions": a.condition or [],
-               "lock_digest": digest(lock) if lock is not None else None, "round": rnd}
+               "lock_digest": digest(lock) if lock is not None else None, "round": rnd, "head": head}
     by, via, ctx = confirm_human(ws, f"record verdict '{a.verdict.upper()}' for design of change '{c.id}'", a.by,
                                  gate_cmdline(ws, *parts), c, payload)
     rec = {"verdict": a.verdict, "by": by, "via": via, "at": now(), "conditions": a.condition or [], "round": rnd,
-           "context": ctx}
+           "head": head, "context": ctx}
     if lock is not None:
         rec["lock"] = lock
         rec["base"] = base_hashes(c)
         rec["req_hashes"] = delta_req_hashes(c)
     c.state["accreditation"] = rec
+    if lock is not None:
+        set_checkpoint(c, "design approval")
     reopened: List[str] = []
     if "lock" in rec:
         reopened = reopen_affected_sprints(c, rec)
@@ -2943,6 +3201,7 @@ def cmd_rewind(a: argparse.Namespace) -> int:
                 if m and m.group(2) in untick:
                     lines[i] = re.sub(r"\[[xX~]\]", "[ ]", ln, count=1)
             c.p("backlog.md").write_text("".join(lines), encoding="utf-8")
+    set_checkpoint(c, f"rewind to {to}")
     c.state.setdefault("rewinds", []).append({"to": to, "sprint": n, "base": rw_base, "by": by, "via": via,
                                               "at": now(), "backup": tag, "stashed": bool(dirty), "cr": a.cr,
                                               "context": ctx})
@@ -2962,6 +3221,83 @@ def cmd_rewind(a: argparse.Namespace) -> int:
     if dirty:
         undo.append("git stash pop")
     print("undo the code (specmaker/ state is kept): " + " && ".join(f"`{u}`" for u in undo))
+    return 0
+
+
+def plan_required(c: "Change") -> bool:
+    """project.md `Plan approval: full|all|off`. full (default): required on the full track only;
+    all: every change; off: never. An unreadable value falls back to the default."""
+    words = re.findall(r"[a-z]+", (project_setting(c.ws, "Plan approval") or "full").lower())
+    v = words[0] if words else "full"
+    if v in ("off", "no", "false", "never"):
+        return False
+    if v in ("all", "always", "required", "yes", "on"):
+        return True
+    return c.track == "full"  # "full", or anything unreadable: the safe default
+
+
+def plan_digest(c: "Change") -> Optional[str]:
+    """Digest of backlog.md with task ticks ignored: progress is not a plan change."""
+    f = c.p("backlog.md")
+    if not f.is_file():
+        return None
+    text = re.sub(r"(?m)^(\s*[-*]\s+)\[[xX~]\]", r"\1[ ]", read(f))
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def plan_approval_problem(c: "Change") -> Optional[str]:
+    if not plan_required(c):
+        return None
+    approvals = c.state.get("plan_approvals", [])
+    if not approvals:
+        return "the backlog and sprint plan are not approved: a person runs `approve-plan <id>`"
+    if approvals[-1].get("backlog_digest") != plan_digest(c):
+        return "the backlog changed since the plan was approved: a person runs `approve-plan <id>` again"
+    return None
+
+
+def set_checkpoint(c: "Change", event: str) -> None:
+    """Record the commit at which code is known to be approved (design approval, sign-off, rewind)."""
+    sha = git(c.ws, "rev-parse", "HEAD")
+    if sha:
+        c.state["checkpoint"] = {"sha": sha, "event": event, "at": now()}
+
+
+def code_since_checkpoint(c: "Change") -> List[str]:
+    cp = (c.state.get("checkpoint") or {}).get("sha")
+    if not cp:
+        return []
+    return changed_files(c.ws, cp) or []
+
+
+def cmd_approve_plan(a: argparse.Namespace) -> int:
+    ws = Workspace.locate(a.root)
+    c = ws.change(a.id)
+    if c.phase not in ("scrum", "sprint"):
+        die(f"change is in phase '{c.phase}'; the plan is approved in scrum (or re-approved during sprints)")
+    if c.lock_drift():
+        die("design changed after accreditation; `amend` and re-accredit first")
+    rep, b = check_backlog(c)
+    print(rep.render("backlog"))
+    if not rep.ok or not b:
+        return 1
+    d = plan_digest(c)
+    if (c.state.get("plan_approvals") or [{}])[-1].get("backlog_digest") == d:
+        print("the current plan is already approved")
+        return 0
+    sprints = {str(n): ids for n, ids in sorted(b.plan.items())}
+    points = sum(int(st.fields.get("points", "0") or 0) for st in b.stories.values() if st.fields.get("points", "").isdigit())
+    payload = {"action": "plan", "backlog_digest": d, "sprints": sprints, "stories": len(b.stories),
+               "epics": len(b.epics), "features": len(b.features)}
+    by, via, ctx = confirm_human(ws, f"approve the plan of change '{c.id}': {len(b.epics)} epic(s), "
+                                 f"{len(b.features)} feature(s), {len(b.stories)} stories, {points} points, "
+                                 f"{len(b.plan)} sprint(s)", a.by, gate_cmdline(ws, "approve-plan", c.id), c, payload)
+    c.state.setdefault("plan_approvals", []).append({"backlog_digest": d, "sprints": sprints, "by": by, "via": via,
+                                                    "at": now(), "context": ctx})
+    append_ledger(c, "decision", f"plan approved by {by} (via {via}): {len(b.stories)} stories in {len(b.plan)} sprint(s)")
+    c.log("approve-plan", f"by {by} (via {via})")
+    c.save()
+    print(f"{c.id}: plan approved by {by} (via {via})")
     return 0
 
 
@@ -2998,6 +3334,28 @@ def cmd_sprint_start(a: argparse.Namespace) -> int:
     blocking = [cid for cid, r in reqs.items() if r.get("status") in ("amend", "applying")]
     if blocking:
         die(f"{', '.join(blocking)} must be applied first (`amend --cr ...` and re-accreditation) before a sprint starts")
+    problem = plan_approval_problem(c)
+    if problem:
+        die(problem.replace("<id>", c.id))
+    early = code_since_checkpoint(c)
+    if early:
+        cp = c.state["checkpoint"]
+        if not a.accept_prior:
+            die(f"code outside specmaker/ changed since the last checkpoint ({cp['event']}, {cp['sha'][:10]}), "
+                f"before implementation was allowed to start:\n  " + "\n  ".join(early[:20])
+                + ("\n  ..." if len(early) > 20 else "")
+                + "\nRevert it (or commit/stash unrelated work elsewhere), or a person accepts it: "
+                f"`sprint-start {c.id} {n} --accept-prior \"<reason>\"` (a human gate).")
+        by, via, ctx = confirm_human(ws, f"ACCEPT {len(early)} file(s) changed outside the plan before sprint {n} of "
+                                     f"'{c.id}': {a.accept_prior}", a.by,
+                                     gate_cmdline(ws, "sprint-start", c.id, str(n), "--accept-prior", a.accept_prior), c,
+                                     {"action": "accept-prior", "sprint": n, "files": early, "reason": a.accept_prior,
+                                      "checkpoint": cp["sha"]})
+        c.state.setdefault("accepted_prior", []).append({"sprint": n, "files": early, "reason": a.accept_prior,
+                                                         "checkpoint": cp["sha"], "by": by, "via": via, "at": now(),
+                                                         "context": ctx})
+        append_ledger(c, "decision", f"accepted {len(early)} file(s) changed before sprint {n}: {a.accept_prior} "
+                      f"(by {by}, via {via})")
     old = sprints.get(str(n), {})
     history = list(old.get("history", []))
     snapshot = {k: v for k, v in old.items() if k != "history"}
@@ -3048,6 +3406,7 @@ def cmd_signoff(a: argparse.Namespace) -> int:
                             + (f" ACCEPTING untested scenarios {', '.join(gaps)}" if gaps else ""), a.by,
                                  gate_cmdline(ws, *parts), c, payload)
     s.update({"status": "signed-off", "by": by, "via": via, "at": now(), "context": ctx})
+    set_checkpoint(c, f"sprint {n} sign-off")
     if gaps:
         s["accepted_gaps"] = {"scenarios": gaps, "reason": a.accept_gaps}
     c.log("signoff", f"sprint {n} by {by} (via {via})")
@@ -3070,7 +3429,8 @@ def cmd_trace(a: argparse.Namespace) -> int:
     else:
         print(md)
     if gaps:
-        print(f"{len(gaps)} scenario(s) without tests: {', '.join(gaps)}", file=sys.stderr)
+        print(f"{len(gaps)} gap(s) (scenarios without tests, or retired scenarios still referenced): "
+              f"{', '.join(gaps)}", file=sys.stderr)
     return 0 if not gaps or not a.strict else 1
 
 
@@ -3109,6 +3469,7 @@ def cmd_archive(a: argparse.Namespace) -> int:
         die("retro.md is missing (a --dry-run works without it)")
     rep = check_specs(c)
     rep.extend(check_approvals(c))
+    rep.extend(check_removals(c))
     drift = c.lock_drift()
     if drift:
         rep.err("lock", "design changed after accreditation: " + ", ".join(drift) + "; `amend` and re-accredit first")
@@ -3132,23 +3493,58 @@ def cmd_archive(a: argparse.Namespace) -> int:
     if not rep.ok:
         print(rep.render("archive preconditions"))
         return 1
-    log = merge_change(c, dry=a.dry_run) + promote_adrs(c, dry=a.dry_run)
+    plan: Dict[Path, str] = {}
+    log = merge_change(c, plan) + promote_adrs(c, plan)
     print("\n".join(log) or "no spec changes")
     if a.dry_run:
         print("dry run: nothing written")
         return 0
-    c.state["phase"] = "archived"
-    c.log("archive", f"{len(log)} spec operation(s)")
-    c.save()
-    ws.archive.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(c.dir), str(dest))
+    apply_archive(c, plan, dest, len(log))
     print(f"archived to {dest.relative_to(ws.project)}")
     return 0
+
+
+def apply_archive(c: Change, plan: Dict[Path, str], dest: Path, n_ops: int) -> None:
+    """Write the planned files and move the change folder as one unit: on any failure every
+    written file is restored (or removed if new) and the change folder stays where it was."""
+    old: Dict[Path, Optional[bytes]] = {t: (t.read_bytes() if t.is_file() else None) for t in plan}
+    state_before = (c.dir / STATE_FILE).read_bytes()
+    written: List[Path] = []
+    try:
+        for target, text in plan.items():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_name(target.name + ".specmaker-tmp")
+            tmp.write_text(text, encoding="utf-8")
+            os.replace(tmp, target)
+            written.append(target)
+        c.state["phase"] = "archived"
+        c.log("archive", f"{n_ops} spec operation(s)")
+        c.save()
+        c.ws.archive.mkdir(parents=True, exist_ok=True)
+        os.rename(c.dir, dest)
+    except BaseException as e:
+        for target in written:
+            if old[target] is None:
+                target.unlink()
+            else:
+                target.write_bytes(old[target])  # type: ignore[arg-type]
+        for target in plan:
+            try:
+                target.with_name(target.name + ".specmaker-tmp").unlink()
+            except OSError:
+                pass  # no temp file was written there
+        if c.dir.is_dir():
+            (c.dir / STATE_FILE).write_bytes(state_before)
+        die(f"archive failed and was rolled back ({type(e).__name__}: {e}); nothing changed")
 
 
 def cmd_spec(a: argparse.Namespace) -> int:
     """Show living spec inventory or one requirement (cheap context loading)."""
     ws = Workspace.locate(a.root)
+    if a.lint:
+        rep = check_living(ws)
+        print(rep.render("living specs"))
+        return 0 if rep.ok else 1
     living = load_living(ws)
     if a.req:
         hit = living.get(a.req)
@@ -3261,7 +3657,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     s = sub.add_parser("sprint-start", help="activate sprint N")
     s.add_argument("id")
     s.add_argument("n", type=int)
+    s.add_argument("--accept-prior", metavar="REASON",
+                   help="HUMAN gate: accept code changed outside specmaker/ since the last checkpoint")
+    s.add_argument("--by", help="approver for --accept-prior (chat mode name, signed mode principal)")
     s.set_defaults(fn=cmd_sprint_start)
+    s = sub.add_parser("approve-plan", help="HUMAN gate: approve the backlog tree and sprint plan before implementation")
+    s.add_argument("id")
+    s.add_argument("--by", help="approver (chat mode name, signed mode principal)")
+    s.set_defaults(fn=cmd_approve_plan)
     s = sub.add_parser("signoff", help="record the HUMAN sign-off of sprint N")
     s.add_argument("id")
     s.add_argument("n", type=int)
@@ -3316,9 +3719,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     s.add_argument("--allowed-signers", help="allowed signers file to trust (CI: a file the agent cannot change)")
     s.add_argument("--base", help="git ref (e.g. origin/main): fail if any approval file was deleted or modified since")
     s.set_defaults(fn=cmd_verify)
-    s = sub.add_parser("spec", help="list living specs, or print one requirement by ID")
+    s = sub.add_parser("spec", help="list living specs, print one requirement by ID, or lint them (--lint)")
     s.add_argument("req", nargs="?")
     s.add_argument("--json", action="store_true")
+    s.add_argument("--lint", action="store_true", help="lint all living specs; exit 1 on errors")
     s.set_defaults(fn=cmd_spec)
 
     a = p.parse_args(argv)

@@ -25,6 +25,14 @@ required behaviour lives in a spec, and the change fits the living specs.
   living version had.
 - **Boundary fit:** files listed in the LLD File Boundary that no phase uses,
   or phases that need files not in the boundary.
+- **Design drift from the HLD and recorded decisions:** places where the LLD
+  or an ADR decides differently from the HLD or a decision in `ledger.md`, and
+  new external interfaces or dependencies the HLD does not mention.
+- **Against the code** (you may read the repository): statements about how
+  the existing system works that the code contradicts; File Boundary paths
+  marked as modified that do not exist; modules, functions, tables or config
+  keys named as existing that do not exist; and new modules that duplicate
+  something the codebase already has. Cite `code:<path>:<line>`.
 
 ## Output
 

@@ -64,6 +64,9 @@ Cover these, in whatever order the conversation goes:
 
 Behaviour during the conversation:
 
+- While exploring the problem, users and outcome, ask open questions without
+  canned answers or a recommended option: the user's own words are the
+  material. Offer options only for the shape of the solution.
 - Challenge before you agree. When the user states a conclusion, test it: name
   the strongest counter-argument and what they may not be seeing.
 - Bring in knowledge the user may lack (prior art, known failure modes,

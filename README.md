@@ -27,6 +27,15 @@ flowchart LR
 | sprint | `specmaker-sprint` | Test-first code inside the agreed file boundary; script-run quality gates; scenario→test trace; a fresh verifier; a named human's sign-off |
 | retro | `specmaker-retro` | Metrics and lessons fed back into `project.md`; delta specs merged into living specs by ID; ADRs promoted; the change archived. Also runs drift checks |
 
+**Optional companion:** `specmaker-monorepo` covers Nx-based polyglot
+monorepos built with
+[ayuna-nxtools](https://github.com/ayunaoss/ayuna-nxtools). It handles
+scaffolding Go, Python and TypeScript projects, shared types (bufgen or
+typegen), workspace sync, per-language check rules, a Go concurrency guard,
+and Containerfile and licence templates. It isn't part of the workflow, so
+install it only when you work in such a monorepo. It works on its own or
+alongside the phases.
+
 The core skill, `specmaker`, sets up the workspace, decides how much process a
 change deserves (**skip / lite / full**), and resumes work from the files. It
 also carries a multi-language
@@ -98,8 +107,9 @@ Inside a session: `/plugin marketplace add ayunaoss/ayuna-specmaker`, then
 This installs into `.agents/skills/`, the shared folder that OpenCode, Codex,
 Cursor and others read. Use `--agent claude` for Claude Code,
 `--agent opencode` for `.opencode/skills/`, `--global` for
-your user folder, `--link` to symlink, and `--explicit-only` so the skills
-load only when you name them.
+your user folder, `--link` to symlink, `--explicit-only` so the skills
+load only when you name them, and `--with-monorepo` to add the optional
+`specmaker-monorepo` skill.
 
 Details and invocation per agent are in [HOW-TO §1–2](docs/how-to.md#1-install).
 
@@ -122,7 +132,8 @@ any sprint is signed off. Then:
 From there the agent guides you phase by phase. It asks one question at a
 time and writes every artifact to a file. At the points where a human must
 decide, the agent prints one command for you to run in your own terminal:
-approving the design, signing off a sprint, deciding a change request, and
+approving the design, approving the plan before any code is written, signing
+off a sprint, deciding a change request, and
 discarding code. The command **signs** the decision with your SSH key; a
 hardware key needs a touch. Later steps, and CI, verify those signatures, so
 an agent cannot approve its own work (see
@@ -156,6 +167,8 @@ skills/
   specmaker-scrum/      SKILL.md, references/agile-guide.md, assets/templates/backlog.md
   specmaker-sprint/     SKILL.md, references/personas/verifier.md, assets/templates/sprint.md
   specmaker-retro/      SKILL.md, assets/templates/retro.md
+  specmaker-monorepo/   optional companion: SKILL.md, references/ (Go, Python, TypeScript),
+                        assets/ (go_guard tool, Containerfiles, licence templates)
 examples/acme-notes/    worked example project
 docs/                   how-to, walkthrough, design
 tests/                  script tests, including checks that the example stays valid

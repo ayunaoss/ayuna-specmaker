@@ -39,6 +39,9 @@ phase). Read the others when they apply:
 - `change-requests.md`: someone asks to change a change in flight
 - `recipes.md`: repair paths, adopting an existing codebase
 
+For Nx polyglot monorepos, the optional `specmaker-monorepo` skill (if
+installed) supplies the scaffolding commands and per-language check rules.
+
 ## The script
 
 All state changes go through `python3 $SM/scripts/specmaker.py <command>`
@@ -54,7 +57,7 @@ reports an error, fix the artifact; never work around the check.
 | `phase <id> <next>` | Advance if the entry gate passes |
 | `ledger <id> --kind ... "text"` | Append a decision, answer or deviation |
 | `cr add\|list\|decide`, `impact`, `rewind`, `amend` | Change requests (see `change-requests.md`) |
-| `accredit`, `signoff`, `cr decide`, `rewind` | **Human gates** (conventions §4) |
+| `accredit`, `approve-plan`, `signoff`, `cr decide`, `rewind` | **Human gates** (conventions §4) |
 
 Phase skills are installed next to this one, in `$SM/../specmaker-<phase>/`.
 
@@ -77,7 +80,7 @@ specmaker/
 | ideate | `specmaker-ideate` | `hld.md` | HLD passes `check` and the user agrees |
 | propose | `specmaker-propose` | `lld.md`, delta specs, ADRs, contracts | design passes `check` |
 | accredit | `specmaker-accredit` | reviews, `accreditation.md`, human verdict | approved; the design is locked |
-| scrum | `specmaker-scrum` | `backlog.md` with sprint plan | backlog passes `check` |
+| scrum | `specmaker-scrum` | `backlog.md` with sprint plan | the full tree passes `check` and a person approves the plan |
 | sprint | `specmaker-sprint` | code, tests, evidence, human sign-off | every sprint signed off |
 | retro | `specmaker-retro` | `retro.md`, merged living specs | archived |
 

@@ -74,7 +74,9 @@ What you get (verified with skills 1.9.0):
 skills-lock.json                                  <- lets `npx skills update` / `check` track versions
 ```
 
-- Without `--skill '*'` the CLI asks which skills to install. Pick all seven.
+- Without `--skill '*'` the CLI asks which skills to install. Pick the seven
+  core skills, plus the optional `specmaker-monorepo` only if you work in an
+  Nx polyglot monorepo. `--skill '*'` installs all eight.
 - Add `-g` for a global install.
 - Use `npx skills update` to upgrade and `npx skills remove --all` to
   uninstall.
@@ -124,6 +126,7 @@ Useful options:
 |---|---|
 | `--link` | Symlink instead of copying, so `git pull` in the specmaker repo updates you |
 | `--explicit-only` | The agent loads specmaker skills only when you name them; they never auto-trigger. In Claude Code this also stops the core skill from loading a phase skill for you, so name each phase yourself (`/specmaker-propose` and so on) |
+| `--with-monorepo` | Also install the optional `specmaker-monorepo` companion skill (Nx polyglot monorepos with ayuna-nxtools) |
 | `--dry-run` | Show what would be installed |
 | `--uninstall` | Remove the seven skill folders from the target |
 
@@ -498,11 +501,33 @@ lists the scenario IDs it **covers**, and each task lists its **files**:
 
 `S check idle-session-timeout backlog` refuses a backlog that:
 
+- isn't a complete tree: an epic with no features, a feature with no stories,
+  or a story with no tasks
 - leaves a scenario uncovered
 - has a task without files
 - has a dependency cycle, or a dependency planned in a later sprint
 
-Then the agent runs `S phase idle-session-timeout sprint`.
+**Approving the plan starts implementation.** Nothing is built until a person
+approves the complete tree and the sprint plan. This is a human gate, like the
+design verdict, and is signed in signed mode:
+
+```bash
+S phase idle-session-timeout sprint
+# ERROR   plan: the backlog and sprint plan are not approved: a person runs `approve-plan idle-session-timeout`
+S approve-plan idle-session-timeout --by alex@example.com      # you run this, as with accredit
+# idle-session-timeout: plan approved by alex@example.com (via signed)
+S phase idle-session-timeout sprint
+```
+
+`project.md` → `Plan approval: full | all | off` controls this:
+
+- `full` (default): required on the full track
+- `all`: required on every change
+- `off`: never required
+
+Ticking tasks doesn't count as a plan change. Adding, removing or editing
+stories, tasks or the sprint plan does: the next `sprint-start` then asks for a
+new `approve-plan`.
 
 Result: [`backlog.md`](../examples/acme-notes/specmaker/changes/idle-session-timeout/backlog.md)
 
@@ -514,6 +539,16 @@ Result: [`backlog.md`](../examples/acme-notes/specmaker/changes/idle-session-tim
 
 ```bash
 S sprint-start idle-session-timeout 1    # records the git base commit
+```
+
+`sprint-start` refuses if any code outside `specmaker/` changed since the last
+checkpoint (design approval, a sprint sign-off or a rewind), committed or not.
+Code written before its sprint is unplanned work:
+
+```text
+specmaker: code outside specmaker/ changed since the last checkpoint (design approval, 34a5171959), before implementation was allowed to start:
+  src/session.py
+Revert it (or commit/stash unrelated work elsewhere), or a person accepts it: `sprint-start idle-session-timeout 1 --accept-prior "<reason>"` (a human gate).
 ```
 
 For each story, the agent:
@@ -707,6 +742,12 @@ ledger, so the next round won't re-raise them. A re-review runs only the lenses
 that raised Blockers or Majors, and only on the changed sections. Reviews stop
 after the round cap (default 2 re-review rounds). Anything left is listed in
 `accreditation.md` for you to accept or reject.
+
+A Blocker is never declined. `accredit` refuses a verdict while a Blocker in
+a lens's latest report has no later round and no ledger entry that contests or
+escalates it (`--kind decision`), or makes it a condition of a `conditional`
+verdict (`--kind condition`). It also refuses incomplete reports: no
+`Verdict:` line or no `## Findings`.
 
 ## 10. Control review cost and reviewer model
 
@@ -1136,6 +1177,9 @@ with `opencode run -s <session-id> "<your answer>"`.
 | `task has no 'files:' boundary` | End the task line with `- files: path/a, path/b` |
 | `design changed after accreditation` | Undo the edit, or `S amend` to reopen the design on purpose |
 | `gates ran at <sha> but HEAD is <sha>` | Commit, then run `S gates <id> N` again |
+| `the backlog and sprint plan are not approved` / `the backlog changed since the plan was approved` | A person reviews the plan and runs `S approve-plan <id>` (§4.5) |
+| `epic E2 (...) has no features` / `feature F3 (...) has no stories` | Complete the tree, or remove the empty epic or feature |
+| `code outside specmaker/ changed since the last checkpoint` | Revert work done ahead of the sprint (or stash unrelated work). If it should stay, a person accepts it with `--accept-prior "<reason>"` |
 | `this is a human gate, and human gates for this change are 'terminal'` (exit 3) | Working as intended: run the printed command yourself in an interactive terminal. Agents must not retry it |
 | `no allowed signers file exists` (exit 3) | Register yourself once: `S approvers add --principal <you> --key <key>.pub` (§3) |
 | `in signed mode --by must give your signer identity` | Add `--by <principal>`, the identity you registered with `approvers add` |
@@ -1152,6 +1196,14 @@ with `opencode run -s <session-id> "<your answer>"`.
 | `CR-NNN must be applied first` | A request decided as `amend` is waiting: `amend --cr CR-NNN`, re-accredit, then start the sprint |
 | `amendment budget reached` | Stop and discuss: re-ideate as a new change, or pass `--over-budget "<reason>"` with the human's agreement |
 | `the recorded gate run predates this sprint's (re)start` | A reopened or rewound sprint needs fresh evidence: run `gates` and a new verifier round |
+| `<report> is incomplete (no 'Verdict:' line or '## Findings')` | The reviewer did not finish: re-dispatch once, otherwise record the lens as `not run` (§9) |
+| `Blocker <report>#G1 is unresolved` | Fix it and re-review the lens (a new round), contest or escalate it in the ledger (`--kind decision --ref <report>#G1`), or make it a condition of a `conditional` verdict (`--kind condition`) |
+| `L-00N declines Blocker ...` | A Blocker is never declined. Fix it, contest it with evidence, or make it a condition |
+| `REMOVED [X-01] ... has no story` / `**Removes** [X-01], which no delta spec lists` | Add a story with `**Removes**: X-01` whose tasks delete the code and tests; list only REMOVED IDs |
+| `X-01.2 ([X-01] is removed) is still referenced by ...` | Delete or rewrite the listed tests and code; `S trace <id>` shows the Removals table |
+| `new capability needs a '## Purpose' of at least 50 characters` / `'## Purpose' is only for a new capability` | Write a real purpose for a new capability; remove the section from deltas of existing ones |
+| `not read: delta specs must be specs/<capability>/spec.md` | Move the text into that capability's `spec.md` |
+| `heading ... would be hidden from checks` / `code block is never closed` | Use only `#### Scenario:` headings inside a requirement; close every fence |
 | `living [X-01] changed since accreditation` | Another change was archived first; re-base the delta, `amend`, re-accredit |
 | Skills don't trigger | Check they are side by side in a scanned folder (§1); name them explicitly (`@specmaker`) |
 | Agent says it cannot find `scripts/specmaker.py` | Install to a standard location (§1), or set `SPECMAKER_HOME` to the installed `specmaker` skill folder before starting the agent |
@@ -1184,11 +1236,12 @@ Every command accepts `--root <dir>`, written **before** the command name:
 | `rewind` | `S rewind add-sso --to sprint:2 --cr CR-001` | Human gate: discard code with a backup branch and stash; records a new commit |
 | `amend` | `S amend add-sso --cr CR-001 --to ideate\|propose --reason "..."` | Reopen the design for decided requests; re-accreditation needs new review reports; budget applies (`--over-budget` is a human gate) |
 | `amend --wording-only` | `S amend add-sso --wording-only --reason "typo"` | Human gate: meaning-neutral fix; no new reviews needed, no sprints reopened; refused if any requirement or scenario ID changes |
-| `sprint-start` | `S sprint-start add-sso 2` | Previous sprints must be signed off; records the git base |
+| `approve-plan` | `S approve-plan add-sso --by alex@example.com` | Human gate: approve the complete backlog tree and sprint plan; required before `phase <id> sprint` and again after any plan change (per `Plan approval`) |
+| `sprint-start` | `S sprint-start add-sso 2 [--accept-prior "<reason>" --by <approver>]` | Previous sprints must be signed off and the plan approved; refuses code changed since the last checkpoint unless a person accepts it (`--accept-prior`, a human gate); records the git base |
 | `gates` | `S gates add-sso 2 --timeout 900` | Runs `project.md` Quality Gates; writes `reviews/sprint-NN-gates.json` |
-| `trace` | `S trace add-sso --out reviews/trace.md --strict` | Scenario → story → test matrix |
+| `trace` | `S trace add-sso --out reviews/trace.md --strict` | Scenario → story → test matrix, plus a Removals table of retired scenarios and anything still naming them |
 | `signoff` | `S signoff add-sso 2 --by alex@example.com` | Human sign-off; re-checks all evidence; same signed, terminal and chat rules as `accredit` |
 | `export` | `S export add-sso --format csv` | Backlog for trackers |
 | `coverage` | `S coverage --capability billing --strict` | Living-scenario test coverage |
-| `spec` | `S spec` · `S spec SESS-02` | Inventory, or one requirement's text |
-| `archive` | `S archive add-sso --dry-run` | Merge, verify, promote ADRs, move to `archive/` |
+| `spec` | `S spec` · `S spec SESS-02` · `S spec --lint` | Inventory, one requirement's text, or lint all living specs (duplicate IDs across capabilities included; exit 1 on errors) |
+| `archive` | `S archive add-sso --dry-run` | Merge, verify, lint, promote ADRs, move to `archive/`; all or nothing (a failure restores every file) |

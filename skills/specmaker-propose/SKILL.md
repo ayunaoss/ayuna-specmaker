@@ -97,6 +97,9 @@ Rules for the LLD:
 
 Write and save one capability at a time, so an interrupted session keeps its
 progress. Before each one, tell the user which capability you are writing.
+In guided mode, ask "Approve the <capability> spec?" after each one: archive
+merges this text word for word, so it gets the same go-ahead as each LLD
+section.
 
 - Follow spec-format.md exactly. Requirements say *what*, never *how*.
 - Write them in present tense, describing the system **after** the change
@@ -120,6 +123,9 @@ Before leaving the phase, check the whole set yourself:
   codes and limits.
 - Nothing duplicates or contradicts a living spec that this change does not
   modify.
+- List every place where the LLD or an ADR decides differently from the HLD or
+  a ledger decision, and every new external interface or dependency. The user
+  decides each one; never silently change either side to make them agree.
 
 Fix what you find. Then run `check <id> design` and fix every error. Review the
 warnings with the user.

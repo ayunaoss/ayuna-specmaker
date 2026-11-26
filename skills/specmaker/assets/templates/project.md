@@ -87,6 +87,10 @@ ADR, not silently diverge.
      Max amendments per change: beyond this, `amend` needs --over-budget "<reason>". -->
 - Sprint freeze: on
 - Max amendments per change: 3
+<!-- Plan approval: implementation starts only after a person approves the complete epic/feature/story/task
+     tree and sprint plan (`approve-plan`, a human gate). full: required on the full track only (default);
+     all: every change; off: never. -->
+- Plan approval: full
 
 ## Approvers
 

@@ -15,6 +15,7 @@ Format (the script parses it):
 - **Points**: 3                      1, 2, 3, 5, 8, 13
 - **Priority**: Must                 Must | Should | Could | Won't
 - **Depends**: S1                    optional
+- **Removes**: AREA-02               REMOVED requirement IDs whose code and tests this story deletes
 - **Type**: story                    story | enabler | spike | chore
 - [ ] T<story>.<n> <imperative step> - files: path/a.ts, path/a.test.ts - owner: agent|human
 -->

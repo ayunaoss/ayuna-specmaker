@@ -23,7 +23,8 @@
 
 ## Residual Risks and Declined Findings
 
-<!-- What is knowingly accepted, why, and the ledger reference (L-NNN) for each. -->
+<!-- What is knowingly accepted, why, and the ledger reference (L-NNN) for each. Also list: any lens that did not
+     run (and why), and every edit made after the last review round (no reviewer has seen those). -->
 
 ## Recommended Verdict
 

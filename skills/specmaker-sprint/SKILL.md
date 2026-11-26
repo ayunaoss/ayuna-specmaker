@@ -49,6 +49,13 @@ something known to be wrong) is triaged at once, with the user.
   then copy `assets/templates/sprint.md` to `sprints/sprint-NN.md` with the
   goal and stories from the Sprint Plan. Tell the user the goal, the stories,
   and any `owner: human` tasks.
+- `sprint-start` refuses when:
+  - the plan is unapproved or changed since its approval: the user runs
+    `approve-plan`.
+  - code outside `specmaker/` changed since the last checkpoint (design
+    approval, a sign-off or a rewind). Never write code before a sprint
+    starts. Show the user the files: they revert them, or accept them with
+    `sprint-start <id> N --accept-prior "<reason>"`, a human gate.
 
 ## 2. Build, one story at a time
 

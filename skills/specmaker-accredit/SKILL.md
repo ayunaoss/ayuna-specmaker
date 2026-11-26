@@ -64,36 +64,37 @@ reviewer gets:
 - its persona `references/personas/<lens>.md` and the goldfish reviewer rules
 - the design files: `hld.md` (if present), `lld.md`, `specs/**`, `adrs/*`,
   `contracts/**`
-- `ledger.md`, `project.md`, and for the **codebase** and **consistency**
-  lenses, the living specs and permission to read the repository
-- `Mode: REVIEW`, the round number, and the scope (whole design, or the changed
-  sections)
+- files inside the repository that the design links to
+- `ledger.md` and `project.md`; for the **codebase** and **consistency**
+  lenses, also the living specs and permission to read the repository
+- `Mode: REVIEW`, the round number, and the scope (whole design, or the diff)
 
-The **comprehension** reviewer does not get `project.md` or the ledger. It tests
-whether the documents stand on their own.
+The **comprehension** reviewer gets only the design files: it tests whether
+the documents stand on their own.
 
-Reports go to `reviews/accredit-r<N>-<lens>.md`. Run the reviewers in parallel
-where possible. Skip any reviewer whose report already exists for this round.
+Reports go to `reviews/accredit-r<N>-<lens>.md`. Follow goldfish.md §1 for
+parallel runs, read-only checks and failed reviewers.
 
 ### 3. Converge
 
 Follow the convergence rules in goldfish.md:
 
-1. Merge the reports into one list, removing duplicates. Show the user the
-   count by severity, then go through the Blockers and Majors **one at a
-   time**. For each one, give your recommendation: FIX (with the exact edit),
-   CONTEST (with the evidence), DECLINE (with the trade-off), or ESCALATE.
-2. Apply approved FIX edits to the design files. Record every CONTEST,
-   DECLINE, ESCALATE outcome and answered question in the ledger, with
-   `--ref accredit-r<N>-<lens>#G<n>`.
+1. Triage zoom-out first, then merge the rest without losing their sources.
+   Show the user the count by severity, then go through the Blockers and
+   Majors **one at a time**, with your recommended outcome (goldfish.md §4:
+   FIX, CONTEST with evidence the reviewer was given, ESCALATE, or DECLINE
+   for Majors only).
+2. Apply approved FIX edits. Record every CONTEST, DECLINE, ESCALATE outcome
+   and answered question in the ledger, with `--ref accredit-r<N>-<lens>#G<n>`.
 3. Re-run `check <id> design`.
-4. If Blockers or Majors with evidence remain and the round cap allows,
-   run another round: only the lenses that raised them, scoped to the changed
-   sections. Otherwise stop.
+4. If Blockers or Majors with evidence remain and the round cap allows, run
+   another round per goldfish.md §4 (it includes zoom-out on the diff).
+   Otherwise stop.
 
-The **comprehension** reviewer's paraphrase is a finding in itself. Show it to
-the user and ask: "Is this what you meant?" A wrong paraphrase means the
-document is unclear, even if nothing else was flagged.
+The **comprehension** reviewer's paraphrase is a finding in itself. Ask the
+user "Is this what you meant?" and record the answer
+(`ledger --kind answer`). Treat a wrong paraphrase like a Blocker: FIX the
+text.
 
 ### 4. Accreditation record
 
@@ -102,7 +103,8 @@ fill it in:
 
 - the preset, rounds and reviewers
 - the finding counts and their resolutions, with ledger references
-- the residual risks and declined findings
+- the residual risks and declined findings, any lens that did not run, and
+  every edit made after the last review round
 - the recommended verdict
 
 Then ask the user directly, as a single question: **"Do you approve this design?

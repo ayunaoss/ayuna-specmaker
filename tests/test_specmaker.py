@@ -17,6 +17,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "skills" / "specmaker" / "scripts" / "specmaker.py"
 TPL = REPO / "skills"
+REPORT_PASS = "# Review\n- Verdict: PASS\n\n## Findings\n\nNone above a Nit.\n"
 
 HLD = """\
 # HLD: Session expiry
@@ -221,7 +222,7 @@ def design(p: Project) -> None:
 
 def reviews(p: Project, lenses=("consistency", "readiness"), rnd: int = 1) -> None:
     for lens in lenses:
-        p.write(f"specmaker/changes/session-expiry/reviews/accredit-r{rnd}-{lens}.md", f"# {lens}\n- Verdict: PASS\n")
+        p.write(f"specmaker/changes/session-expiry/reviews/accredit-r{rnd}-{lens}.md", f"# {lens}\n- Verdict: PASS\n\n## Findings\n\nNone above a Nit.\n")
     p.write("specmaker/changes/session-expiry/accreditation.md", "# Accreditation\n")
 
 
@@ -266,6 +267,7 @@ class EndToEnd(unittest.TestCase):
         # backlog
         p.write("specmaker/changes/session-expiry/backlog.md", BACKLOG)
         p.run("check", "session-expiry", "backlog")
+        p.run("approve-plan", "session-expiry", "--by", "Ravi")
         p.run("phase", "session-expiry", "sprint")
 
         # sprint
@@ -386,7 +388,7 @@ The system SHALL end a session 15 minutes after its last authenticated request.
         def to_retro(cid: str) -> None:
             p.run("set", cid, "docs_only", "true")
             p.run("phase", cid, "accredit")
-            p.write(f"specmaker/changes/{cid}/reviews/accredit-r1-readiness.md", "ok\n")
+            p.write(f"specmaker/changes/{cid}/reviews/accredit-r1-readiness.md", REPORT_PASS)
             p.write(f"specmaker/changes/{cid}/accreditation.md", "# A\n")
             p.run("accredit", cid, "--verdict", "approved", "--by", "Ravi")
             p.run("phase", cid, "retro")
@@ -545,6 +547,7 @@ class Installer(unittest.TestCase):
         self.sh("--agent", "opencode")
         names = sorted(p.name for p in (self.tmp / ".opencode/skills").iterdir())
         self.assertEqual(len(names), 7)
+        self.assertNotIn("specmaker-monorepo", names)          # optional companion: only with its flag
         self.sh("--agent", "opencode", ok=False)  # exists, no --force
         self.sh("--agent", "opencode", "--force", "--explicit-only")
         md = (self.tmp / ".opencode/skills/specmaker-sprint/SKILL.md").read_text()
@@ -556,6 +559,10 @@ class Installer(unittest.TestCase):
         self.sh("--link", "--explicit-only", ok=False)
         self.sh("--agent", "claude", "--uninstall")
         self.assertFalse((self.tmp / ".claude/skills/specmaker").exists())
+        self.sh("--agent", "claude", "--with-monorepo")
+        self.assertTrue((self.tmp / ".claude/skills/specmaker-monorepo/assets/tools/go_guard/guard.py").is_file())
+        self.sh("--agent", "claude", "--uninstall")             # removes optional skills too
+        self.assertFalse((self.tmp / ".claude/skills/specmaker-monorepo").exists())
         # installed script works from the installed location
         r = subprocess.run([sys.executable, str(self.tmp / ".opencode/skills/specmaker/scripts/specmaker.py"), "init"],
                            cwd=self.tmp, capture_output=True, text=True)
@@ -658,7 +665,7 @@ class Packaging(unittest.TestCase):
             names.append(re.search(r"(?m)^name: (.+)$", head).group(1).strip())
             self.assertEqual(names[-1], d.name)
         self.assertIn("specmaker", names)
-        self.assertEqual(len(names), 7)
+        self.assertEqual(len(names), 8)                        # seven core skills + optional specmaker-monorepo
         # no other SKILL.md in the repo that the CLI could pick up by accident
         stray = [p for p in REPO.rglob("SKILL.md") if "skills" not in p.relative_to(REPO).parts[:1]
                  and ".git" not in p.parts]
@@ -685,6 +692,7 @@ class ChangeRequests(unittest.TestCase):
         p.run("accredit", "session-expiry", "--verdict", "approved", "--by", "Ravi")
         p.run("phase", "session-expiry", "scrum")
         p.write("specmaker/changes/session-expiry/backlog.md", BACKLOG)
+        p.run("approve-plan", "session-expiry", "--by", "Ravi")
         p.run("phase", "session-expiry", "sprint")
         p.write("src/app.py", "print('hi')\n")
         p.sh("git add -A && git commit -qm base")
@@ -773,6 +781,7 @@ class ChangeRequests(unittest.TestCase):
         self.assertEqual(p.state()["sprints"]["1"]["status"], "reopened")
         # re-running the sprint needs fresh evidence
         p.run("phase", cid, "scrum")
+        p.run("approve-plan", cid, "--by", "Ravi")
         p.run("phase", cid, "sprint")
         p.run("sprint-start", cid, "1")
         r = p.run("signoff", cid, "1", "--by", "Ravi", ok=False)
@@ -821,7 +830,7 @@ class AuditRegressions(unittest.TestCase):
                 "## Test Strategy\nx\n## File Boundary\nnone (documentation only)\n")
         p.write(f"specmaker/changes/{cid}/specs/identity/session/spec.md", delta)
         p.run("phase", cid, "accredit")
-        p.write(f"specmaker/changes/{cid}/reviews/accredit-r1-readiness.md", "ok\n")
+        p.write(f"specmaker/changes/{cid}/reviews/accredit-r1-readiness.md", REPORT_PASS)
         p.write(f"specmaker/changes/{cid}/accreditation.md", "# A\n")
         p.run("accredit", cid, "--verdict", "approved", "--by", "Ravi")
         p.run("phase", cid, "retro")
@@ -984,6 +993,7 @@ class ChangeControlGaps(unittest.TestCase):
         p.run("accredit", "session-expiry", "--verdict", "approved", "--by", "Ravi")
         p.run("phase", "session-expiry", "scrum")
         p.write("specmaker/changes/session-expiry/backlog.md", BACKLOG)
+        p.run("approve-plan", "session-expiry", "--by", "Ravi")
         p.run("phase", "session-expiry", "sprint")
         p.sh("git add -A && git commit -qm base")
 
@@ -1060,12 +1070,13 @@ class GitRobustness(unittest.TestCase):
         run("phase", "session-expiry", "propose")
         run("phase", "session-expiry", "accredit")
         for lens in ("consistency", "readiness"):
-            (proj / c / f"reviews/accredit-r1-{lens}.md").write_text("ok\n")
+            (proj / c / f"reviews/accredit-r1-{lens}.md").write_text(REPORT_PASS)
         (proj / c / "accreditation.md").write_text("# A\n")
         run("accredit", "session-expiry", "--verdict", "approved", "--by", "Ravi")
         run("phase", "session-expiry", "scrum")
         (proj / c / "backlog.md").write_text(BACKLOG.replace("files: src/session.py", "files: src/session.py, src/café.py")
                                          .replace("files: tests/test_session.py", "files: tests/test_session.py, tests/test_sessión.py"))
+        run("approve-plan", "session-expiry", "--by", "Ravi")
         run("phase", "session-expiry", "sprint")
         (proj / ".gitignore").write_text("")
         p.sh("git add -A && git commit -qm base")
@@ -1273,7 +1284,16 @@ class Brevity(unittest.TestCase):
     remaining text is needed, raise the budget here, in the same change, with a comment saying why.
     Never delete a rule, a check or a needed explanation just to pass this test."""
 
-    BUDGET = {"specmaker": 850}           # core skill: a route map; recipes live in references/recipes.md
+    BUDGET = {"specmaker": 850,          # core skill: a route map; recipes live in references/recipes.md
+              # scrum holds the implementation trigger (complete tree + human plan approval): kept in full
+              "specmaker-scrum": 1150,
+              # EGM consensus gates and LLD/HLD reconciliation (per-capability approval, drift listing)
+              "specmaker-propose": 1150,
+              # EGM triage discipline summarised in-skill (full rules in goldfish.md)
+              "specmaker-accredit": 1100,
+              # optional companion, loaded only for monorepo work; its generator commands must be verbatim
+              # and its configuration rules are project quality rules, so they stay in the skill
+              "specmaker-monorepo": 1250}
     DEFAULT = 1050                         # each phase skill
     CONVENTIONS = 900                      # read by every phase
 
@@ -1312,6 +1332,8 @@ class Tidiness(unittest.TestCase):
     def test_every_skill_locates_the_script(self) -> None:
         snippets = {}
         for d in sorted((REPO / "skills").iterdir()):
+            if d.name == "specmaker-monorepo":
+                continue  # standalone companion: it locates its own folder (test below)
             m = re.search(r"```bash\n(R=\$\(git rev-parse[^\n]+)\n```", (d / "SKILL.md").read_text())
             self.assertIsNotNone(m, f"{d.name}: locate command missing")
             snippets[d.name] = m.group(1)
@@ -1328,6 +1350,40 @@ class Tidiness(unittest.TestCase):
                 self.assertEqual(out, ".agents/skills/specmaker", name)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_monorepo_skill_locates_itself(self) -> None:
+        text = (REPO / "skills/specmaker-monorepo/SKILL.md").read_text()
+        snip = re.search(r"```bash\n(R=\$\(git rev-parse[^\n]+)\n```", text).group(1)
+        tmp = Path(tempfile.mkdtemp(prefix="specmaker-locate-mr-"))
+        try:
+            subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
+            subprocess.run(["bash", str(REPO / "install.sh"), "--with-monorepo"], cwd=tmp, check=True, capture_output=True)
+            (tmp / "apps/go").mkdir(parents=True)
+            env = {k: v for k, v in os.environ.items() if k != "CLAUDE_SKILL_DIR"}
+            out = subprocess.run(["bash", "-c", snip], cwd=tmp / "apps/go", capture_output=True, text=True,
+                                 env=env).stdout.strip()
+            self.assertEqual(out, ".agents/skills/specmaker-monorepo")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class MonorepoGoGuard(unittest.TestCase):
+    """Run the companion skill's go_guard tests (pytest style) without requiring pytest."""
+
+    def test_go_guard(self) -> None:
+        guard_dir = REPO / "skills/specmaker-monorepo/assets/tools/go_guard"
+        code = ("import sys, tempfile, pathlib\nsys.path.insert(0, sys.argv[1])\nimport test_guard\nfailed = []\n"
+                "for name, fn in sorted(vars(test_guard).items()):\n"
+                "    if name.startswith('test_') and callable(fn):\n"
+                "        with tempfile.TemporaryDirectory() as d:\n"
+                "            try:\n                fn(pathlib.Path(d))\n"
+                "            except AssertionError as e:\n                failed.append(f'{name}: {e}')\n"
+                "print('\\n'.join(failed))\nsys.exit(1 if failed else 0)\n")
+        r = subprocess.run([sys.executable, "-c", code, str(guard_dir)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        cli = subprocess.run([sys.executable, str(guard_dir / "guard.py"), "--root", str(REPO)], capture_output=True,
+                             text=True)
+        self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)   # no Go sources here: clean run
 
 
 class SignedAttacks(SignedGates):
@@ -1349,6 +1405,7 @@ class SignedAttacks(SignedGates):
         self.s("accredit", "session-expiry", "--verdict", "approved", "--by", "alex@example.com")
         self.s("phase", "session-expiry", "scrum")
         p.write("specmaker/changes/session-expiry/backlog.md", BACKLOG)
+        self.s("approve-plan", "session-expiry", "--by", "alex@example.com")
         self.s("phase", "session-expiry", "sprint")
         p.write("src/app.py", "print('hi')\n")
         p.sh("git add -A && git commit -qm base")
@@ -1457,3 +1514,302 @@ class SignedAttacks(SignedGates):
         last.unlink()
         Path(str(last) + ".sig").unlink()
         self.fails("verify", expect="without gaps")
+
+
+class PlanBeforeImplementation(unittest.TestCase):
+    """Implementation starts only with a complete, human-approved plan and no code written ahead of it."""
+
+    def setUp(self) -> None:
+        self.p = p = Project()
+        p.run("init")
+        chat_gates(p)
+        set_gates(p)
+        p.write("src/app.py", "print('hi')\n")
+        p.sh("git add -A && git commit -qm initial")        # a commit exists, so design approval records a checkpoint
+        p.run("new", "session-expiry")
+        design(p)
+        p.run("phase", "session-expiry", "propose")
+        p.run("phase", "session-expiry", "accredit")
+        reviews(p)
+        p.run("accredit", "session-expiry", "--verdict", "approved", "--by", "Ravi")
+        p.run("phase", "session-expiry", "scrum")
+        p.write("specmaker/changes/session-expiry/backlog.md", BACKLOG)
+
+    def tearDown(self) -> None:
+        self.p.cleanup()
+
+    def test_tree_must_be_complete(self) -> None:
+        p = self.p
+        bl = p.change() / "backlog.md"
+        bl.write_text(BACKLOG.replace("## Sprint Plan", "## E2 - Empty epic\n\n### F9 - Empty feature\n\n## Sprint Plan"))
+        out = p.run("check", "session-expiry", "backlog", ok=False).stdout
+        self.assertIn("feature F9 (Empty feature) has no stories", out)
+        bl.write_text(BACKLOG.replace("## Sprint Plan", "## E2 - Lonely epic\n\n## Sprint Plan"))
+        self.assertIn("epic E2 (Lonely epic) has no features", p.run("check", "session-expiry", "backlog", ok=False).stdout)
+
+    def test_plan_approval_gates_the_sprint(self) -> None:
+        p, cid = self.p, "session-expiry"
+        r = p.run("phase", cid, "sprint", ok=False)
+        self.assertIn("not approved", r.stdout)
+        self.assertIn("approve-plan", p.run("status", cid).stdout)
+        p.run("approve-plan", cid, "--by", "Ravi")
+        p.run("phase", cid, "sprint")
+        bl = p.change() / "backlog.md"
+        bl.write_text(bl.read_text().replace("- [ ] T1.1", "- [x] T1.1"))   # progress is not a plan change
+        p.sh("git add -A && git commit -qm specmaker-only")
+        p.run("sprint-start", cid, "1")
+        p.run("signoff", cid, "1", "--by", "Ravi", ok=False)          # (incomplete sprint; irrelevant here)
+        # adding a story is a plan change: the next sprint start needs a new approval
+        st = p.state()
+        st["sprints"]["1"]["status"] = "signed-off"                     # simulate sprint 1 done (chat mode)
+        (p.change() / "change.json").write_text(json.dumps(st))
+        bl.write_text(bl.read_text().replace("## Sprint Plan", "#### S2 - As a user, I want x, so that y\n- **Covers**: AUTH-01.1\n"
+                      "- **Points**: 1\n- [ ] T2.1 do - files: src/session.py\n\n## Sprint Plan")
+                      .replace("| 1 | Idle sessions expire | S1 | 3 |", "| 1 | Idle sessions expire | S1 | 3 |\n| 2 | more | S2 | 1 |"))
+        r = subprocess.run([sys.executable, str(SCRIPT), "sprint-start", cid, "2"], cwd=p.tmp, capture_output=True, text=True)
+        self.assertIn("changed since the plan was approved", r.stderr)
+
+    def test_plan_approval_setting_and_lite_default(self) -> None:
+        p = self.p
+        pm = p.tmp / "specmaker/project.md"
+        self.assertIn("- Plan approval: full", pm.read_text())          # template default
+        p.run("new", "small", "--track", "lite")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("specmaker_mod", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        ws = mod.Workspace(p.tmp / "specmaker")
+        for value, full_needs, lite_needs in [("full", True, False), ("all", True, True), ("off", False, False),
+                                              ("nonsense", True, False)]:
+            pm.write_text(re.sub(r"(?m)^- Plan approval: .*$", f"- Plan approval: {value}", pm.read_text()))
+            self.assertEqual(mod.plan_required(ws.change("session-expiry")), full_needs, value)
+            self.assertEqual(mod.plan_required(ws.change("small")), lite_needs, value)
+        pm.write_text(re.sub(r"(?m)^- Plan approval: .*$", "- Plan approval: off", pm.read_text()))
+        p.run("phase", "session-expiry", "sprint")                      # off: no approval needed
+
+    def test_code_written_before_the_sprint_is_refused(self) -> None:
+        p, cid = self.p, "session-expiry"
+        p.run("approve-plan", cid, "--by", "Ravi")
+        p.run("phase", cid, "sprint")
+        p.write("src/session.py", "early = True\n")
+        p.sh("git add -A && git commit -qm early-work")
+        r = subprocess.run([sys.executable, str(SCRIPT), "sprint-start", cid, "1"], cwd=p.tmp, capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("src/session.py", r.stderr)
+        self.assertIn("design approval", r.stderr)
+        p.write("src/other.py", "uncommitted = True\n")                 # uncommitted work counts too
+        r = subprocess.run([sys.executable, str(SCRIPT), "sprint-start", cid, "1"], cwd=p.tmp, capture_output=True, text=True)
+        self.assertIn("src/other.py", r.stderr)
+        p.run("sprint-start", cid, "1", "--accept-prior", "spike code kept on purpose", "--by", "Ravi")
+        st = p.state()
+        self.assertEqual(sorted(st["accepted_prior"][0]["files"]), ["src/other.py", "src/session.py"])
+        self.assertIn("accepted 2 file(s)", (p.change() / "ledger.md").read_text())
+
+
+class SignedPlanApproval(SignedGates):
+    def test_signed_plan_approval_and_forgery(self) -> None:
+        self.to_accredit()
+        self.s("accredit", "session-expiry", "--verdict", "approved", "--by", "alex@example.com")
+        self.s("phase", "session-expiry", "scrum")
+        self.p.write("specmaker/changes/session-expiry/backlog.md", BACKLOG)
+        self.s("approve-plan", "session-expiry", "--by", "alex@example.com")
+        self.assertTrue(list((self.p.change() / "approvals").glob("*-plan.json")))
+        self.s("verify", "--require-signed")
+        cj = self.p.change() / "change.json"
+        st = json.loads(cj.read_text())
+        st["plan_approvals"][-1]["backlog_digest"] = "0" * 64
+        cj.write_text(json.dumps(st))
+        self.assertIn("plan approval #1: the record differs", self.s("verify", ok=False).stdout)
+
+
+def load_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("specmaker_mod", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class LogicReview(unittest.TestCase):
+    """Regression tests for the OpenSpec and EGM logic review (2026-11-26)."""
+
+    setUp = AuditRegressions.setUp
+    tearDown = AuditRegressions.tearDown
+    living = AuditRegressions.living
+    to_retro_docs_only = AuditRegressions.to_retro_docs_only
+    ADD = AuditRegressions.ADD
+    PURPOSE = "Keeps signed-in sessions valid only while their users are active.\n"
+
+    REMOVE = ("# identity/session\n\n## REMOVED Requirements\n\n### Requirement: [AUTH-03] Sign out\n"
+              "**Reason**: sign-out moves to the gateway.\n**Migration**: none.\n")
+
+    def delta_check(self, delta: str, ok: bool) -> str:
+        p = self.p
+        if "x" not in [c.name for c in (p.tmp / "specmaker/changes").iterdir()]:
+            p.run("new", "x", "--track", "lite")
+        p.write("specmaker/changes/x/specs/identity/session/spec.md", delta)
+        return p.run("check", "x", "specs", ok=ok).stdout
+
+    def test_fences_and_hidden_headings(self) -> None:
+        self.p.write("specmaker/specs/identity/session/spec.md", self.living())
+        req = self.ADD.split("#### Scenario")[0]
+        scn = "#### Scenario" + self.ADD.split("#### Scenario")[1]
+        # a ~~~ fence hides a fake requirement; an inline ```code``` line opens nothing
+        out = self.delta_check(req + "```npm test``` runs it.\n\n" + scn
+                               + "\n~~~text\n### Requirement: [AUTH-05] fake\n~~~\n", ok=True)
+        self.assertNotIn("AUTH-05", out)
+        out = self.delta_check(req + "```text\nSHALL in an example\n" + scn, ok=False)
+        self.assertIn("never closed", out)
+        out = self.delta_check(req + "### Notes\nhidden\n\n" + scn, ok=False)
+        self.assertIn("would be hidden from checks", out)
+
+    def test_spec_folder_and_purpose_rules(self) -> None:
+        p = self.p
+        p.write("specmaker/specs/identity/session/spec.md", self.living())
+        out = self.delta_check(self.ADD.replace("# identity/session\n",
+                                                "# identity/session\n\n## Purpose\n\n" + self.PURPOSE), ok=False)
+        self.assertIn("'## Purpose' is only for a new capability", out)
+        p.write("specmaker/changes/x/specs/billing/spec.md",
+                self.ADD.replace("identity/session", "billing").replace("AUTH-04", "BILL-01")
+                .replace("## ADDED", "## Purpose\n\nTBD\n\n## ADDED"))
+        p.write("specmaker/changes/x/specs/identity/session/spec.md", self.ADD)
+        out = p.run("check", "x", "specs", ok=False).stdout
+        self.assertIn("at least 50 characters", out)
+        p.write("specmaker/changes/x/specs/billing/spec.md", "")
+        (p.change("x") / "specs/billing/spec.md").unlink()
+        p.write("specmaker/changes/x/specs/notes.md", "# stray\n")
+        self.assertIn("not read", p.run("check", "x", "specs", ok=False).stdout)
+        (p.change("x") / "specs/notes.md").unlink()
+        p.run("set", "x", "skip_specs", "true")
+        self.assertIn("skip_specs is set but delta specs exist", p.run("check", "x", "specs", ok=False).stdout)
+        p.run("set", "x", "skip_specs", "false")
+        out = p.run("check", "x", "specs").stdout
+        self.assertNotIn("not merged", out)
+        out = self.delta_check(self.ADD.replace("## ADDED Requirements\n", "## ADDED Requirements\n\nStray note.\n"),
+                               ok=True)
+        self.assertIn("is not merged into the living spec", out)
+
+    def test_living_lint_and_merge_lint(self) -> None:
+        p = self.p
+        p.write("specmaker/specs/identity/session/spec.md", self.living())
+        p.run("spec", "--lint")
+        p.write("specmaker/specs/identity/token/spec.md",
+                "# identity/token\n\n## Purpose\n\nx\n\n## Requirements\n\n" + self.living().split("## Requirements\n\n")[1])
+        out = p.run("spec", "--lint", ok=False).stdout
+        self.assertIn("defined more than once", out)
+        mod = load_module()
+        rep = mod.lint_living({"a/spec.md": "# a\n\n## Requirements\n\n### Requirement: [A-01] x\nNo normative word.\n"})
+        self.assertFalse(rep.ok)
+
+    def test_removals_need_a_story_and_no_leftover_tests(self) -> None:
+        p = self.p
+        p.write("specmaker/specs/identity/session/spec.md", self.living())
+        p.write("tests/test_signout.py", "# covers: AUTH-03.1\ndef test_signout():\n    pass\n")
+        self.to_retro_docs_only("drop-signout", self.REMOVE)
+        out = p.run("trace", "drop-signout").stdout
+        self.assertIn("## Removals", out)
+        self.assertIn("tests/test_signout.py", out)
+        out = p.run("archive", "drop-signout", ok=False).stdout
+        self.assertIn("AUTH-03.1 ([AUTH-03] is removed) is still referenced by tests/test_signout.py", out)
+        (p.tmp / "tests/test_signout.py").unlink()
+        self.assertIn("nothing (confirmed)", p.run("trace", "drop-signout").stdout)
+        p.run("archive", "drop-signout")
+        self.assertNotIn("AUTH-03", (p.tmp / "specmaker/specs/identity/session/spec.md").read_text())
+
+    def test_backlog_removes_field(self) -> None:
+        p = self.p
+        p.write("specmaker/specs/identity/session/spec.md", self.living())
+        p.run("new", "trim", "--track", "lite")
+        p.write("specmaker/changes/trim/specs/identity/session/spec.md", self.ADD + self.REMOVE.split("\n", 1)[1])
+        p.write("specmaker/changes/trim/lld.md", "# LLD\n\n> **TL;DR** x\n\n## Architecture\nx\n## Interfaces\nx\n"
+                "## Test Strategy\nx\n## File Boundary\nsrc/session.py\n")
+        p.run("phase", "trim", "accredit")
+        p.write("specmaker/changes/trim/reviews/accredit-r1-readiness.md", REPORT_PASS)
+        p.write("specmaker/changes/trim/accreditation.md", "# A\n")
+        p.run("accredit", "trim", "--verdict", "approved", "--by", "Ravi")
+        p.run("phase", "trim", "scrum")
+        story = ("#### S1 - Idle sessions end\n- **Covers**: AUTH-04.1\n- **Points**: 2\n"
+                 "- [ ] T1.1 Expire idle sessions - files: src/session.py\n\n")
+        plan = "## Sprint Plan\n\n| Sprint | Goal | Stories | Points |\n|---|---|---|---|\n| 1 | Trim | S1, S2 | 3 |\n"
+        remover = ("#### S2 - Remove sign-out\n- **Removes**: AUTH-03\n- **Points**: 1\n"
+                   "- [ ] T2.1 Delete sign-out code and tests - files: src/signout.py\n\n")
+        p.write("specmaker/changes/trim/backlog.md", "# Backlog: trim\n\n" + story
+                + remover.replace("**Removes**: AUTH-03", "**Covers**:") + plan)
+        out = p.run("check", "trim", "backlog", ok=False).stdout
+        self.assertIn("REMOVED [AUTH-03]", out)
+        p.write("specmaker/changes/trim/backlog.md", "# Backlog: trim\n\n" + story
+                + remover.replace("AUTH-03", "AUTH-02") + plan)
+        self.assertIn("**Removes** [AUTH-02], which no delta spec lists under REMOVED",
+                      p.run("check", "trim", "backlog", ok=False).stdout)
+        p.write("specmaker/changes/trim/backlog.md", "# Backlog: trim\n\n" + story + remover + plan)
+        p.run("check", "trim", "backlog")
+
+    def test_archive_rolls_back_on_failure(self) -> None:
+        p = self.p
+        spec = p.write("specmaker/specs/identity/session/spec.md", self.living())
+        self.to_retro_docs_only("add-idle", self.ADD)
+        original = spec.read_text()
+        mod = load_module()
+        c = mod.Workspace(p.tmp / "specmaker").change("add-idle")
+        p.write("specmaker/blocker", "a file where a folder is needed\n")
+        plan = {spec: "rewritten\n", p.tmp / "specmaker/blocker/adr.md": "x\n"}
+        with self.assertRaises(SystemExit):
+            mod.apply_archive(c, plan, p.tmp / "specmaker/archive/add-idle", 1)
+        self.assertEqual(spec.read_text(), original)
+        self.assertEqual(p.state("add-idle")["phase"], "retro")
+        self.assertFalse((p.tmp / "specmaker/archive/add-idle").exists())
+        self.assertEqual([x.name for x in spec.parent.iterdir()], ["spec.md"])
+
+    def review_setup(self, report: str) -> None:
+        p = self.p
+        p.run("new", "rv", "--track", "lite")
+        p.write("specmaker/changes/rv/specs/identity/session/spec.md",
+                self.ADD.replace("# identity/session\n", "# identity/session\n\n## Purpose\n\n" + self.PURPOSE))
+        p.write("specmaker/changes/rv/lld.md", "# LLD\n\n> **TL;DR** x\n\n## Architecture\nx\n## Interfaces\nx\n"
+                "## Test Strategy\nx\n## File Boundary\nsrc/session.py\n")
+        p.run("phase", "rv", "accredit")
+        p.write("specmaker/changes/rv/reviews/accredit-r1-readiness.md", report)
+        p.write("specmaker/changes/rv/accreditation.md", "# A\n")
+
+    BLOCKER = ("# Readiness review - round 1\n- Verdict: FAIL\n\n## Findings\n### G1 [Blocker] No error code\n"
+               "- Evidence: absent:error code\n- Problem: x\n- Suggested fix: y\n### G2 [Major] Vague timer\n"
+               "- Evidence: doc:lld.md#Interfaces\n- Problem: x\n- Suggested fix: y\n")
+
+    def test_incomplete_report_is_refused(self) -> None:
+        self.review_setup("# Readiness review\nI looked at it and it seems fine.\n")
+        out = self.p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi", ok=False).stdout
+        self.assertIn("is incomplete", out)
+
+    def test_blockers_must_be_resolved_and_never_declined(self) -> None:
+        p = self.p
+        self.review_setup(self.BLOCKER)
+        out = p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi", ok=False).stdout
+        self.assertIn("Blocker accredit-r1-readiness.md#G1 is unresolved", out)
+        self.assertNotIn("#G2", out)                                    # Majors are triaged, not script-gated
+        p.run("ledger", "rv", "--kind", "declined", "--ref", "accredit-r1-readiness.md#G1", "not worth it")
+        out = p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi", ok=False).stdout
+        self.assertIn("L-001 declines Blocker accredit-r1-readiness.md#G1", out)
+        # a condition resolves it only for a conditional verdict; the declined entry still blocks
+        p.run("ledger", "rv", "--kind", "condition", "--ref", "accredit-r1-readiness.md#G1", "add the error code")
+        out = p.run("accredit", "rv", "--verdict", "conditional", "--condition", "error code", "--by", "Ravi",
+                    ok=False).stdout
+        self.assertNotIn("is unresolved", out)
+        self.assertIn("declines Blocker", out)
+
+    def test_blocker_fixed_and_rereviewed_or_contested(self) -> None:
+        p = self.p
+        self.review_setup(self.BLOCKER)
+        p.run("ledger", "rv", "--kind", "decision", "--ref", "accredit-r1-readiness#G1",
+              "contested: doc:lld.md#Interfaces names the code")
+        p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi")
+        self.review_setup_round2()
+
+    def review_setup_round2(self) -> None:
+        p = self.p
+        p.run("amend", "rv", "--reason", "fix G1")
+        p.run("phase", "rv", "accredit")
+        p.write("specmaker/changes/rv/reviews/accredit-r2-readiness.md", self.BLOCKER.replace("round 1", "round 2"))
+        out = p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi", ok=False).stdout
+        self.assertIn("accredit-r2-readiness.md#G1 is unresolved", out)   # the r1 ledger entry does not carry over
+        p.write("specmaker/changes/rv/reviews/accredit-r3-readiness.md", REPORT_PASS)
+        p.run("accredit", "rv", "--verdict", "approved", "--by", "Ravi")
